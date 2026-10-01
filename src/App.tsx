@@ -1,5 +1,5 @@
 import React from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { ThemeProvider } from './context/ThemeContext';
 import { PdfProvider } from './context/PdfContext';
 import { Navbar } from './components/layout/Navbar';
@@ -14,7 +14,7 @@ export const App: React.FC = () => {
   return (
     <ThemeProvider>
       <PdfProvider>
-        <BrowserRouter>
+        <HashRouter>
           <div className="min-h-screen flex flex-col bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100 font-sans selection:bg-brand-500/20 selection:text-brand-600 dark:selection:text-brand-300">
             <Navbar />
             <div className="flex-1 flex flex-col">
@@ -37,7 +37,7 @@ export const App: React.FC = () => {
               </Routes>
             </div>
           </div>
-        </BrowserRouter>
+        </HashRouter>
       </PdfProvider>
     </ThemeProvider>
   );
