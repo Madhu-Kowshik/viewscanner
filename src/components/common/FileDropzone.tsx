@@ -7,6 +7,7 @@ import { cn, formatBytes } from '../../lib/utils';
 export interface FileDropzoneProps {
   multiple?: boolean;
   onFilesSelected?: (files: File[]) => void;
+  onFileSelected?: (file: File) => void;
   accept?: string;
   title?: string;
   subtitle?: string;
@@ -16,6 +17,7 @@ export interface FileDropzoneProps {
 export const FileDropzone: React.FC<FileDropzoneProps> = ({
   multiple = false,
   onFilesSelected,
+  onFileSelected,
   title = 'Drop your PDF here',
   subtitle = 'or choose a file from your device',
   className,
@@ -50,7 +52,9 @@ export const FileDropzone: React.FC<FileDropzoneProps> = ({
         return;
       }
 
-      if (multiple && onFilesSelected) {
+      if (onFileSelected) {
+        onFileSelected(files[0]);
+      } else if (multiple && onFilesSelected) {
         onFilesSelected(files);
       } else {
         await loadFile(files[0]);
@@ -61,7 +65,9 @@ export const FileDropzone: React.FC<FileDropzoneProps> = ({
   const handleFileInputChange = async (e: ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
       const files = Array.from(e.target.files);
-      if (multiple && onFilesSelected) {
+      if (onFileSelected) {
+        onFileSelected(files[0]);
+      } else if (multiple && onFilesSelected) {
         onFilesSelected(files);
       } else {
         await loadFile(files[0]);

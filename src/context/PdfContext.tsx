@@ -4,6 +4,11 @@ import {
   PdfPageItem,
   ProcessingState,
   ProcessedResult,
+  WatermarkConfig,
+  PageNumberConfig,
+  CompressConfig,
+  AnnotationItem,
+  PdfHealthReport,
 } from '../types/pdf';
 import {
   validatePdf,
@@ -14,10 +19,33 @@ import {
   splitPdfEveryPage,
   splitPdfByRanges,
   createZipBundle,
+  insertBlankPage as engineInsertBlank,
+  insertPagesFromOtherPdf as engineInsertOther,
+  replacePageInPdf as engineReplacePage,
+  reversePageOrder as engineReverseOrder,
+  detectBlankPages as engineDetectBlank,
+  deletePages as engineDeletePages,
+  addWatermarkToPdf as engineAddWatermark,
+  addPageNumbersToPdf as engineAddPageNumbers,
+  addHeaderFooterToPdf as engineAddHeaderFooter,
+  compressPdfDocument as engineCompress,
+  cleanPdfMetadata as engineCleanMetadata,
+  applyAnnotationsToPdf as engineApplyAnnotations,
+  embedSignatureOnPdf as engineEmbedSignature,
+  convertImagesToPdf as engineConvertImages,
+  convertPdfToImages as engineConvertPdfToImages,
+  convertTextToPdf as engineConvertText,
+  extractAllTextFromPdf as engineExtractText,
+  analyzePdfHealth as engineAnalyzeHealth,
 } from '../lib/pdf/pdf-engine';
 import { createSamplePdf } from '../lib/pdf/sample-pdf';
 import { addRecentFile } from '../lib/recent-files';
 import { generateId, getBaseFileName, sanitizeFileName } from '../lib/utils';
+
+interface DocumentSnapshot {
+  file: PdfFileInfo;
+  pages: PdfPageItem[];
+}
 
 interface PdfContextType {
   currentFile: PdfFileInfo | null;
@@ -26,11 +54,19 @@ interface PdfContextType {
   mergeFiles: PdfFileInfo[];
   processing: ProcessingState;
   result: ProcessedResult | null;
+  healthReport: PdfHealthReport | null;
+
+  // Undo / Redo
+  canUndo: boolean;
+  canRedo: boolean;
+  undo: () => void;
+  redo: () => void;
 
   // File loading
   loadFile: (file: File | { data: ArrayBuffer; name: string }) => Promise<boolean>;
   loadSampleDoc: () => Promise<void>;
   clearCurrentFile: () => void;
+  updateActiveDocument: (newData: Uint8Array | ArrayBuffer, operationName: string) => Promise<void>;
 
   // Organizer Page manipulations
   reorderPages: (activeId: string, overId: string) => void;
@@ -45,6 +81,27 @@ interface PdfContextType {
   selectAllPages: () => void;
   clearPageSelection: () => void;
 
+  // Extended Organizer Tools
+  insertBlankPageAt: (atIndex: number) => Promise<void>;
+  insertFromAnotherPdf: (otherFile: File, atIndex: number) => Promise<void>;
+  replacePageWithPdf: (pageIndex: number, otherFile: File) => Promise<void>;
+  reverseAllPages: () => Promise<void>;
+  removeDetectedBlankPages: () => Promise<void>;
+
+  // Extended Workspaces
+  applyWatermark: (config: WatermarkConfig) => Promise<void>;
+  applyPageNumbers: (config: PageNumberConfig) => Promise<void>;
+  applyHeaderFooter: (header: string, footer: string) => Promise<void>;
+  compressDocument: (config: CompressConfig) => Promise<void>;
+  cleanMetadata: () => Promise<void>;
+  applyAnnotations: (annotations: AnnotationItem[]) => Promise<void>;
+  applySignature: (pageIndex: number, signatureDataUrl: string, x: number, y: number, w: number, h: number) => Promise<void>;
+  convertImagesToPdfAction: (images: { dataUrl: string; name: string }[], options?: any) => Promise<void>;
+  convertPdfToImagesAction: (format?: 'image/jpeg' | 'image/png') => Promise<void>;
+  convertTextToPdfAction: (text: string, title?: string) => Promise<void>;
+  extractAllTextAction: () => Promise<string>;
+  runHealthCheck: () => Promise<PdfHealthReport | null>;
+
   // Merge manipulations
   addMergeFiles: (newFiles: File[]) => Promise<void>;
   removeMergeFile: (id: string) => void;
@@ -52,7 +109,7 @@ interface PdfContextType {
   moveMergeFile: (index: number, direction: 'up' | 'down') => void;
   clearMergeFiles: () => void;
 
-  // Operation executors
+  // Export executors
   exportOrganizedPdf: () => Promise<void>;
   exportMergedPdf: () => Promise<void>;
   exportSplitEveryPage: () => Promise<void>;
@@ -71,13 +128,14 @@ export const PdfProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [pages, setPages] = useState<PdfPageItem[]>([]);
   const [selectedPageIds, setSelectedPageIds] = useState<Set<string>>(new Set());
   const [mergeFiles, setMergeFiles] = useState<PdfFileInfo[]>([]);
-  const [processing, setProcessing] = useState<ProcessingState>({
-    status: 'idle',
-    message: '',
-  });
+  const [processing, setProcessing] = useState<ProcessingState>({ status: 'idle', message: '' });
   const [result, setResult] = useState<ProcessedResult | null>(null);
+  const [healthReport, setHealthReport] = useState<PdfHealthReport | null>(null);
 
-  // Keep a reference to the active result URL for cleanup
+  // Undo / Redo Stacks
+  const [undoStack, setUndoStack] = useState<DocumentSnapshot[]>([]);
+  const [redoStack, setRedoStack] = useState<DocumentSnapshot[]>([]);
+
   const currentResultUrlRef = useRef<string | null>(null);
 
   const cleanupResultUrl = useCallback(() => {
@@ -93,19 +151,44 @@ export const PdfProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [cleanupResultUrl]);
 
   const setProcessingError = useCallback((message: string) => {
-    setProcessing({
-      status: 'error',
-      message,
-    });
+    setProcessing({ status: 'error', message });
   }, []);
+
+  // Record current state before a mutation
+  const recordSnapshot = useCallback(() => {
+    if (currentFile) {
+      setUndoStack((prev) => [
+        ...prev.slice(-15), // keep last 15 actions
+        { file: { ...currentFile }, pages: [...pages] },
+      ]);
+      setRedoStack([]); // reset redo on new user action
+    }
+  }, [currentFile, pages]);
+
+  const undo = useCallback(() => {
+    if (undoStack.length === 0 || !currentFile) return;
+    const previous = undoStack[undoStack.length - 1];
+    setUndoStack((prev) => prev.slice(0, -1));
+    setRedoStack((prev) => [...prev, { file: { ...currentFile }, pages: [...pages] }]);
+
+    setCurrentFile(previous.file);
+    setPages(previous.pages);
+  }, [undoStack, currentFile, pages]);
+
+  const redo = useCallback(() => {
+    if (redoStack.length === 0 || !currentFile) return;
+    const next = redoStack[redoStack.length - 1];
+    setRedoStack((prev) => prev.slice(0, -1));
+    setUndoStack((prev) => [...prev, { file: { ...currentFile }, pages: [...pages] }]);
+
+    setCurrentFile(next.file);
+    setPages(next.pages);
+  }, [redoStack, currentFile, pages]);
 
   const loadFile = useCallback(
     async (fileInput: File | { data: ArrayBuffer; name: string }): Promise<boolean> => {
       clearResult();
-      setProcessing({
-        status: 'reading',
-        message: 'Reading and validating PDF...',
-      });
+      setProcessing({ status: 'reading', message: 'Reading and validating PDF...' });
 
       try {
         let buffer: ArrayBuffer;
@@ -142,8 +225,9 @@ export const PdfProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         };
 
         setCurrentFile(fileInfo);
+        setUndoStack([]);
+        setRedoStack([]);
 
-        // Extract metadata for pages
         setProcessing({
           status: 'processing',
           message: 'Extracting page structure...',
@@ -172,7 +256,17 @@ export const PdfProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
         setProcessing({ status: 'idle', message: '' });
 
-        // Asynchronously render thumbnails in background without blocking UI
+        // Run health check in background
+        setTimeout(async () => {
+          try {
+            const report = await engineAnalyzeHealth(buffer);
+            setHealthReport(report);
+          } catch {
+            // ignore
+          }
+        }, 300);
+
+        // Asynchronously render thumbnails
         setTimeout(async () => {
           for (let i = 0; i < newPageItems.length; i++) {
             try {
@@ -182,7 +276,7 @@ export const PdfProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 prev.map((p) => (p.id === item.id ? { ...p, thumbnailUrl: thumbUrl } : p))
               );
             } catch {
-              // thumbnail rendering fallback handles broken page previews
+              // ignore
             }
           }
         }, 50);
@@ -191,10 +285,7 @@ export const PdfProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       } catch (err: unknown) {
         setProcessing({
           status: 'error',
-          message:
-            err instanceof Error
-              ? err.message
-              : "An unexpected error occurred while reading the PDF.",
+          message: err instanceof Error ? err.message : 'Failed to read PDF.',
         });
         return false;
       }
@@ -219,13 +310,72 @@ export const PdfProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setCurrentFile(null);
     setPages([]);
     setSelectedPageIds(new Set());
+    setUndoStack([]);
+    setRedoStack([]);
+    setHealthReport(null);
     clearResult();
     setProcessing({ status: 'idle', message: '' });
   }, [clearResult]);
 
-  // Page reordering (DndKit)
+  // In-place document updater for continuous workspace workflow
+  const updateActiveDocument = useCallback(
+    async (newData: Uint8Array | ArrayBuffer, operationName: string) => {
+      if (!currentFile) return;
+      recordSnapshot();
+
+      const rawBuffer = newData instanceof Uint8Array ? (newData.buffer as ArrayBuffer) : newData;
+      const metaPages = await getDocumentPagesMetadata(rawBuffer);
+
+      const updatedFile: PdfFileInfo = {
+        ...currentFile,
+        data: rawBuffer,
+        size: rawBuffer.byteLength,
+        pageCount: metaPages.length,
+        lastModified: Date.now(),
+      };
+
+      const newPageItems: PdfPageItem[] = metaPages.map((meta, idx) => ({
+        id: generateId(),
+        originalIndex: idx,
+        displayNumber: idx + 1,
+        rotation: 0,
+        originalRotation: meta.rotation,
+        aspectRatio: meta.aspectRatio,
+      }));
+
+      setCurrentFile(updatedFile);
+      setPages(newPageItems);
+      setSelectedPageIds(new Set());
+
+      addRecentFile({
+        name: updatedFile.name,
+        size: updatedFile.size,
+        pageCount: updatedFile.pageCount,
+        operation: operationName,
+      });
+
+      // Rerender thumbnails in background
+      setTimeout(async () => {
+        for (let i = 0; i < newPageItems.length; i++) {
+          try {
+            const item = newPageItems[i];
+            const thumbUrl = await renderPageThumbnail(rawBuffer, item.originalIndex + 1, 240);
+            setPages((prev) =>
+              prev.map((p) => (p.id === item.id ? { ...p, thumbnailUrl: thumbUrl } : p))
+            );
+          } catch {
+            // ignore
+          }
+        }
+      }, 50);
+    },
+    [currentFile, recordSnapshot]
+  );
+
+  // Organizer reordering
   const reorderPages = useCallback((activeId: string, overId: string) => {
     if (activeId === overId) return;
+    recordSnapshot();
 
     setPages((prev) => {
       const oldIndex = prev.findIndex((p) => p.id === activeId);
@@ -238,9 +388,10 @@ export const PdfProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       return updated.map((p, idx) => ({ ...p, displayNumber: idx + 1 }));
     });
-  }, []);
+  }, [recordSnapshot]);
 
   const movePage = useCallback((index: number, direction: 'left' | 'right') => {
+    recordSnapshot();
     setPages((prev) => {
       const targetIndex = direction === 'left' ? index - 1 : index + 1;
       if (targetIndex < 0 || targetIndex >= prev.length) return prev;
@@ -251,33 +402,37 @@ export const PdfProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       return updated.map((p, idx) => ({ ...p, displayNumber: idx + 1 }));
     });
-  }, []);
+  }, [recordSnapshot]);
 
   const rotatePage = useCallback((id: string, deg = 90) => {
+    recordSnapshot();
     setPages((prev) =>
       prev.map((p) => (p.id === id ? { ...p, rotation: (p.rotation + deg) % 360 } : p))
     );
-  }, []);
+  }, [recordSnapshot]);
 
   const rotateSelectedPages = useCallback(
     (deg = 90) => {
       if (selectedPageIds.size === 0) return;
+      recordSnapshot();
       setPages((prev) =>
         prev.map((p) =>
           selectedPageIds.has(p.id) ? { ...p, rotation: (p.rotation + deg) % 360 } : p
         )
       );
     },
-    [selectedPageIds]
+    [selectedPageIds, recordSnapshot]
   );
 
   const rotateAllPages = useCallback((deg = 90) => {
+    recordSnapshot();
     setPages((prev) => prev.map((p) => ({ ...p, rotation: (p.rotation + deg) % 360 })));
-  }, []);
+  }, [recordSnapshot]);
 
   const deletePage = useCallback((id: string) => {
+    recordSnapshot();
     setPages((prev) => {
-      if (prev.length <= 1) return prev; // Keep at least 1 page
+      if (prev.length <= 1) return prev;
       const filtered = prev.filter((p) => p.id !== id);
       return filtered.map((p, idx) => ({ ...p, displayNumber: idx + 1 }));
     });
@@ -286,24 +441,23 @@ export const PdfProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       next.delete(id);
       return next;
     });
-  }, []);
+  }, [recordSnapshot]);
 
   const deleteSelectedPages = useCallback(() => {
     if (selectedPageIds.size === 0) return;
+    recordSnapshot();
 
     setPages((prev) => {
       const remaining = prev.filter((p) => !selectedPageIds.has(p.id));
-      if (remaining.length === 0) {
-        // Can't delete all
-        return prev;
-      }
+      if (remaining.length === 0) return prev;
       return remaining.map((p, idx) => ({ ...p, displayNumber: idx + 1 }));
     });
 
     setSelectedPageIds(new Set());
-  }, [selectedPageIds]);
+  }, [selectedPageIds, recordSnapshot]);
 
   const duplicatePage = useCallback((id: string) => {
+    recordSnapshot();
     setPages((prev) => {
       const index = prev.findIndex((p) => p.id === id);
       if (index === -1) return prev;
@@ -318,14 +472,13 @@ export const PdfProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       updated.splice(index + 1, 0, duplicate);
       return updated.map((p, idx) => ({ ...p, displayNumber: idx + 1 }));
     });
-  }, []);
+  }, [recordSnapshot]);
 
   const toggleSelectPage = useCallback(
     (id: string, event?: React.MouseEvent) => {
       setSelectedPageIds((prev) => {
         const next = new Set(prev);
         if (event?.shiftKey && prev.size > 0) {
-          // Range selection
           const lastSelectedId = Array.from(prev)[prev.size - 1];
           const lastIdx = pages.findIndex((p) => p.id === lastSelectedId);
           const currentIdx = pages.findIndex((p) => p.id === id);
@@ -339,11 +492,8 @@ export const PdfProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           }
         }
 
-        if (next.has(id)) {
-          next.delete(id);
-        } else {
-          next.add(id);
-        }
+        if (next.has(id)) next.delete(id);
+        else next.add(id);
         return next;
       });
     },
@@ -358,7 +508,482 @@ export const PdfProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setSelectedPageIds(new Set());
   }, []);
 
-  // Merge documents management
+  // NEW EXTENDED ORGANIZER ACTIONS
+  const insertBlankPageAt = useCallback(
+    async (atIndex: number) => {
+      if (!currentFile) return;
+      setProcessing({ status: 'processing', message: 'Inserting blank page...' });
+      try {
+        const updated = await engineInsertBlank(currentFile.data, atIndex);
+        await updateActiveDocument(updated, 'Insert Blank Page');
+        setProcessing({ status: 'success', message: 'Blank page inserted.' });
+      } catch (err: unknown) {
+        setProcessing({
+          status: 'error',
+          message: err instanceof Error ? err.message : 'Failed to insert blank page.',
+        });
+      }
+    },
+    [currentFile, updateActiveDocument]
+  );
+
+  const insertFromAnotherPdf = useCallback(
+    async (otherFile: File, atIndex: number) => {
+      if (!currentFile) return;
+      setProcessing({ status: 'processing', message: 'Inserting pages from document...' });
+      try {
+        const otherBytes = await otherFile.arrayBuffer();
+        const updated = await engineInsertOther(currentFile.data, otherBytes, atIndex);
+        await updateActiveDocument(updated, 'Insert Pages');
+        setProcessing({ status: 'success', message: 'Pages inserted successfully.' });
+      } catch (err: unknown) {
+        setProcessing({
+          status: 'error',
+          message: err instanceof Error ? err.message : 'Failed to insert pages.',
+        });
+      }
+    },
+    [currentFile, updateActiveDocument]
+  );
+
+  const replacePageWithPdf = useCallback(
+    async (pageIndex: number, otherFile: File) => {
+      if (!currentFile) return;
+      setProcessing({ status: 'processing', message: 'Replacing page...' });
+      try {
+        const otherBytes = await otherFile.arrayBuffer();
+        const updated = await engineReplacePage(currentFile.data, pageIndex, otherBytes, 0);
+        await updateActiveDocument(updated, 'Replace Page');
+        setProcessing({ status: 'success', message: 'Page replaced successfully.' });
+      } catch (err: unknown) {
+        setProcessing({
+          status: 'error',
+          message: err instanceof Error ? err.message : 'Failed to replace page.',
+        });
+      }
+    },
+    [currentFile, updateActiveDocument]
+  );
+
+  const reverseAllPages = useCallback(async () => {
+    if (!currentFile) return;
+    setProcessing({ status: 'processing', message: 'Reversing page order...' });
+    try {
+      const updated = await engineReverseOrder(currentFile.data);
+      await updateActiveDocument(updated, 'Reverse Page Order');
+      setProcessing({ status: 'success', message: 'Page order reversed.' });
+    } catch (err: unknown) {
+      setProcessing({
+        status: 'error',
+        message: err instanceof Error ? err.message : 'Failed to reverse page order.',
+      });
+    }
+  }, [currentFile, updateActiveDocument]);
+
+  const removeDetectedBlankPages = useCallback(async () => {
+    if (!currentFile) return;
+    setProcessing({ status: 'processing', message: 'Scanning for blank pages...' });
+    try {
+      const blankIndices = await engineDetectBlank(currentFile.data);
+      if (blankIndices.length === 0) {
+        setProcessing({ status: 'idle', message: 'No blank pages detected.' });
+        return;
+      }
+      const updated = await engineDeletePages(currentFile.data, blankIndices);
+      await updateActiveDocument(updated, 'Remove Blank Pages');
+      setProcessing({ status: 'success', message: `Removed ${blankIndices.length} blank page(s).` });
+    } catch (err: unknown) {
+      setProcessing({
+        status: 'error',
+        message: err instanceof Error ? err.message : 'Failed to remove blank pages.',
+      });
+    }
+  }, [currentFile, updateActiveDocument]);
+
+  // WATERMARK
+  const applyWatermark = useCallback(
+    async (config: WatermarkConfig) => {
+      if (!currentFile) return;
+      setProcessing({ status: 'processing', message: 'Applying watermark...' });
+      try {
+        const updated = await engineAddWatermark(currentFile.data, config);
+        await updateActiveDocument(updated, 'Add Watermark');
+
+        cleanupResultUrl();
+        const blob = new Blob([updated as unknown as BlobPart], { type: 'application/pdf' });
+        const url = URL.createObjectURL(blob);
+        currentResultUrlRef.current = url;
+
+        setResult({
+          fileName: `${getBaseFileName(currentFile.name)}_watermarked.pdf`,
+          data: updated,
+          pageCount: pages.length,
+          size: updated.byteLength,
+          url,
+          type: 'pdf',
+        });
+        setProcessing({ status: 'success', message: 'Watermark applied successfully!' });
+      } catch (err: unknown) {
+        setProcessing({
+          status: 'error',
+          message: err instanceof Error ? err.message : 'Failed to apply watermark.',
+        });
+      }
+    },
+    [currentFile, pages.length, updateActiveDocument, cleanupResultUrl]
+  );
+
+  // PAGE NUMBERING
+  const applyPageNumbers = useCallback(
+    async (config: PageNumberConfig) => {
+      if (!currentFile) return;
+      setProcessing({ status: 'processing', message: 'Adding page numbers...' });
+      try {
+        const updated = await engineAddPageNumbers(currentFile.data, config);
+        await updateActiveDocument(updated, 'Page Numbers');
+
+        cleanupResultUrl();
+        const blob = new Blob([updated as unknown as BlobPart], { type: 'application/pdf' });
+        const url = URL.createObjectURL(blob);
+        currentResultUrlRef.current = url;
+
+        setResult({
+          fileName: `${getBaseFileName(currentFile.name)}_numbered.pdf`,
+          data: updated,
+          pageCount: pages.length,
+          size: updated.byteLength,
+          url,
+          type: 'pdf',
+        });
+        setProcessing({ status: 'success', message: 'Page numbers added!' });
+      } catch (err: unknown) {
+        setProcessing({
+          status: 'error',
+          message: err instanceof Error ? err.message : 'Failed to add page numbers.',
+        });
+      }
+    },
+    [currentFile, pages.length, updateActiveDocument, cleanupResultUrl]
+  );
+
+  // HEADER & FOOTER
+  const applyHeaderFooter = useCallback(
+    async (header: string, footer: string) => {
+      if (!currentFile) return;
+      setProcessing({ status: 'processing', message: 'Applying header and footer...' });
+      try {
+        const updated = await engineAddHeaderFooter(currentFile.data, header, footer);
+        await updateActiveDocument(updated, 'Header and Footer');
+
+        cleanupResultUrl();
+        const blob = new Blob([updated as unknown as BlobPart], { type: 'application/pdf' });
+        const url = URL.createObjectURL(blob);
+        currentResultUrlRef.current = url;
+
+        setResult({
+          fileName: `${getBaseFileName(currentFile.name)}_header_footer.pdf`,
+          data: updated,
+          pageCount: pages.length,
+          size: updated.byteLength,
+          url,
+          type: 'pdf',
+        });
+        setProcessing({ status: 'success', message: 'Header and footer applied!' });
+      } catch (err: unknown) {
+        setProcessing({
+          status: 'error',
+          message: err instanceof Error ? err.message : 'Failed to apply headers/footers.',
+        });
+      }
+    },
+    [currentFile, pages.length, updateActiveDocument, cleanupResultUrl]
+  );
+
+  // COMPRESS DOCUMENT
+  const compressDocument = useCallback(
+    async (config: CompressConfig) => {
+      if (!currentFile) return;
+      setProcessing({ status: 'processing', message: 'Compressing PDF document...', progress: 10 });
+      try {
+        const comp = await engineCompress(currentFile.data, config, (curr, tot) => {
+          setProcessing({
+            status: 'processing',
+            message: `Optimizing page ${curr} of ${tot}...`,
+            progress: Math.round((curr / tot) * 90),
+          });
+        });
+
+        await updateActiveDocument(comp.data, 'Compress PDF');
+
+        cleanupResultUrl();
+        const blob = new Blob([comp.data as unknown as BlobPart], { type: 'application/pdf' });
+        const url = URL.createObjectURL(blob);
+        currentResultUrlRef.current = url;
+
+        setResult({
+          fileName: `${getBaseFileName(currentFile.name)}_compressed.pdf`,
+          data: comp.data,
+          pageCount: pages.length,
+          size: comp.newSize,
+          url,
+          type: 'pdf',
+        });
+        setProcessing({
+          status: 'success',
+          message: `Compressed by ${comp.ratio}% (${(comp.originalSize / 1024).toFixed(0)} KB → ${(comp.newSize / 1024).toFixed(0)} KB)`,
+        });
+      } catch (err: unknown) {
+        setProcessing({
+          status: 'error',
+          message: err instanceof Error ? err.message : 'Failed to compress document.',
+        });
+      }
+    },
+    [currentFile, pages.length, updateActiveDocument, cleanupResultUrl]
+  );
+
+  // CLEAN METADATA
+  const cleanMetadata = useCallback(async () => {
+    if (!currentFile) return;
+    setProcessing({ status: 'processing', message: 'Stripping document metadata...' });
+    try {
+      const updated = await engineCleanMetadata(currentFile.data);
+      await updateActiveDocument(updated, 'Clean Metadata');
+      setProcessing({ status: 'success', message: 'All identifying metadata stripped.' });
+    } catch (err: unknown) {
+      setProcessing({
+        status: 'error',
+        message: err instanceof Error ? err.message : 'Failed to clean metadata.',
+      });
+    }
+  }, [currentFile, updateActiveDocument]);
+
+  // ANNOTATIONS / EDITOR
+  const applyAnnotations = useCallback(
+    async (annotations: AnnotationItem[]) => {
+      if (!currentFile || annotations.length === 0) return;
+      setProcessing({ status: 'processing', message: 'Burning annotations into PDF...' });
+      try {
+        const updated = await engineApplyAnnotations(currentFile.data, annotations);
+        await updateActiveDocument(updated, 'Edit Annotations');
+
+        cleanupResultUrl();
+        const blob = new Blob([updated as unknown as BlobPart], { type: 'application/pdf' });
+        const url = URL.createObjectURL(blob);
+        currentResultUrlRef.current = url;
+
+        setResult({
+          fileName: `${getBaseFileName(currentFile.name)}_edited.pdf`,
+          data: updated,
+          pageCount: pages.length,
+          size: updated.byteLength,
+          url,
+          type: 'pdf',
+        });
+        setProcessing({ status: 'success', message: 'Annotations applied to PDF!' });
+      } catch (err: unknown) {
+        setProcessing({
+          status: 'error',
+          message: err instanceof Error ? err.message : 'Failed to apply annotations.',
+        });
+      }
+    },
+    [currentFile, pages.length, updateActiveDocument, cleanupResultUrl]
+  );
+
+  // SIGNATURE
+  const applySignature = useCallback(
+    async (pageIndex: number, signatureDataUrl: string, x: number, y: number, w: number, h: number) => {
+      if (!currentFile) return;
+      setProcessing({ status: 'processing', message: 'Embedding signature...' });
+      try {
+        const updated = await engineEmbedSignature(currentFile.data, pageIndex, signatureDataUrl, x, y, w, h);
+        await updateActiveDocument(updated, 'Add Signature');
+
+        cleanupResultUrl();
+        const blob = new Blob([updated as unknown as BlobPart], { type: 'application/pdf' });
+        const url = URL.createObjectURL(blob);
+        currentResultUrlRef.current = url;
+
+        setResult({
+          fileName: `${getBaseFileName(currentFile.name)}_signed.pdf`,
+          data: updated,
+          pageCount: pages.length,
+          size: updated.byteLength,
+          url,
+          type: 'pdf',
+        });
+        setProcessing({ status: 'success', message: 'Signature embedded successfully!' });
+      } catch (err: unknown) {
+        setProcessing({
+          status: 'error',
+          message: err instanceof Error ? err.message : 'Failed to embed signature.',
+        });
+      }
+    },
+    [currentFile, pages.length, updateActiveDocument, cleanupResultUrl]
+  );
+
+  // CONVERT IMAGES TO PDF
+  const convertImagesToPdfAction = useCallback(
+    async (images: { dataUrl: string; name: string }[], options?: any) => {
+      if (images.length === 0) return;
+      setProcessing({ status: 'processing', message: 'Compiling images into PDF...' });
+      try {
+        const pdfData = await engineConvertImages(images, options);
+        cleanupResultUrl();
+        const blob = new Blob([pdfData as unknown as BlobPart], { type: 'application/pdf' });
+        const url = URL.createObjectURL(blob);
+        currentResultUrlRef.current = url;
+
+        setResult({
+          fileName: 'images_document.pdf',
+          data: pdfData,
+          pageCount: images.length,
+          size: pdfData.byteLength,
+          url,
+          type: 'pdf',
+        });
+
+        addRecentFile({
+          name: 'images_document.pdf',
+          size: pdfData.byteLength,
+          pageCount: images.length,
+          operation: 'Images to PDF',
+        });
+
+        setProcessing({ status: 'success', message: 'PDF created from images!' });
+      } catch (err: unknown) {
+        setProcessing({
+          status: 'error',
+          message: err instanceof Error ? err.message : 'Failed to convert images to PDF.',
+        });
+      }
+    },
+    [cleanupResultUrl]
+  );
+
+  // CONVERT PDF TO IMAGES
+  const convertPdfToImagesAction = useCallback(
+    async (format: 'image/jpeg' | 'image/png' = 'image/jpeg') => {
+      if (!currentFile) return;
+      setProcessing({ status: 'processing', message: 'Rasterizing PDF pages to images...', progress: 10 });
+      try {
+        const imgResults = await engineConvertPdfToImages(currentFile.data, format, 0.9, (c, t) => {
+          setProcessing({
+            status: 'processing',
+            message: `Rendering image ${c} of ${t}...`,
+            progress: Math.round((c / t) * 85),
+          });
+        });
+
+        const zipBlob = await createZipBundle(imgResults.map((r) => ({ name: r.name, data: r.blob })));
+        cleanupResultUrl();
+        const url = URL.createObjectURL(zipBlob);
+        currentResultUrlRef.current = url;
+
+        setResult({
+          fileName: `${getBaseFileName(currentFile.name)}_images.zip`,
+          data: new Uint8Array(),
+          pageCount: imgResults.length,
+          size: zipBlob.size,
+          url,
+          type: 'zip',
+          multiFiles: imgResults.map((r) => ({
+            name: r.name,
+            size: r.blob.size,
+            pageCount: 1,
+            data: new Uint8Array(),
+          })),
+        });
+
+        setProcessing({ status: 'success', message: 'Images generated and packaged into ZIP!' });
+      } catch (err: unknown) {
+        setProcessing({
+          status: 'error',
+          message: err instanceof Error ? err.message : 'Failed to export images.',
+        });
+      }
+    },
+    [currentFile, cleanupResultUrl]
+  );
+
+  // CONVERT TEXT TO PDF
+  const convertTextToPdfAction = useCallback(
+    async (text: string, title?: string) => {
+      setProcessing({ status: 'processing', message: 'Generating PDF from text...' });
+      try {
+        const pdfData = await engineConvertText(text, title);
+        cleanupResultUrl();
+        const blob = new Blob([pdfData as unknown as BlobPart], { type: 'application/pdf' });
+        const url = URL.createObjectURL(blob);
+        currentResultUrlRef.current = url;
+
+        setResult({
+          fileName: `${sanitizeFileName(title || 'text_document')}.pdf`,
+          data: pdfData,
+          pageCount: 1,
+          size: pdfData.byteLength,
+          url,
+          type: 'pdf',
+        });
+
+        setProcessing({ status: 'success', message: 'PDF created from text!' });
+      } catch (err: unknown) {
+        setProcessing({
+          status: 'error',
+          message: err instanceof Error ? err.message : 'Failed to generate PDF from text.',
+        });
+      }
+    },
+    [cleanupResultUrl]
+  );
+
+  // EXTRACT ALL TEXT
+  const extractAllTextAction = useCallback(async (): Promise<string> => {
+    if (!currentFile) return '';
+    setProcessing({ status: 'processing', message: 'Extracting text content...' });
+    try {
+      const extracted = await engineExtractText(currentFile.data);
+      const blob = new Blob([extracted.fullText], { type: 'text/plain' });
+      cleanupResultUrl();
+      const url = URL.createObjectURL(blob);
+      currentResultUrlRef.current = url;
+
+      setResult({
+        fileName: `${getBaseFileName(currentFile.name)}_extracted_text.txt`,
+        data: new Uint8Array(),
+        pageCount: pages.length,
+        size: blob.size,
+        url,
+        type: 'text',
+        textPayload: extracted.fullText,
+      });
+
+      setProcessing({ status: 'success', message: 'Text extracted successfully!' });
+      return extracted.fullText;
+    } catch (err: unknown) {
+      setProcessing({
+        status: 'error',
+        message: err instanceof Error ? err.message : 'Failed to extract text.',
+      });
+      return '';
+    }
+  }, [currentFile, pages.length, cleanupResultUrl]);
+
+  // HEALTH CHECK
+  const runHealthCheck = useCallback(async (): Promise<PdfHealthReport | null> => {
+    if (!currentFile) return null;
+    try {
+      const report = await engineAnalyzeHealth(currentFile.data);
+      setHealthReport(report);
+      return report;
+    } catch {
+      return null;
+    }
+  }, [currentFile]);
+
+  // MERGE ACTIONS
   const addMergeFiles = useCallback(async (newFiles: File[]) => {
     setProcessing({ status: 'reading', message: 'Validating documents for merge...' });
     const validatedFiles: PdfFileInfo[] = [];
@@ -421,9 +1046,7 @@ export const PdfProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setMergeFiles([]);
   }, []);
 
-  // EXPORT / EXECUTION ACTIONS
-
-  // 1. Export Organized PDF
+  // EXPORT ACTIONS
   const exportOrganizedPdf = useCallback(async () => {
     if (!currentFile || pages.length === 0) return;
 
@@ -479,7 +1102,6 @@ export const PdfProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   }, [currentFile, pages, cleanupResultUrl]);
 
-  // 2. Export Merged PDF
   const exportMergedPdf = useCallback(async () => {
     if (mergeFiles.length < 2) {
       setProcessing({
@@ -489,11 +1111,7 @@ export const PdfProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return;
     }
 
-    setProcessing({
-      status: 'processing',
-      message: 'Merging documents...',
-      progress: 20,
-    });
+    setProcessing({ status: 'processing', message: 'Merging documents...', progress: 20 });
 
     try {
       const outputData = await mergePdfs(mergeFiles, (curr, tot) => {
@@ -537,7 +1155,6 @@ export const PdfProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   }, [mergeFiles, cleanupResultUrl]);
 
-  // 3. Export Split Every Page
   const exportSplitEveryPage = useCallback(async () => {
     if (!currentFile) return;
 
@@ -554,12 +1171,6 @@ export const PdfProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           message: `Extracting page ${curr} of ${tot}...`,
           progress: Math.round((curr / tot) * 80),
         });
-      });
-
-      setProcessing({
-        status: 'processing',
-        message: 'Creating zip archive...',
-        progress: 85,
       });
 
       const zipBlob = await createZipBundle(splitResults);
@@ -600,22 +1211,16 @@ export const PdfProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   }, [currentFile, cleanupResultUrl]);
 
-  // 4. Export Split Ranges
   const exportSplitRanges = useCallback(
     async (ranges: { start: number; end: number; name?: string }[]) => {
       if (!currentFile || ranges.length === 0) return;
 
-      setProcessing({
-        status: 'processing',
-        message: 'Splitting document by ranges...',
-        progress: 30,
-      });
+      setProcessing({ status: 'processing', message: 'Splitting document by ranges...', progress: 30 });
 
       try {
         const splitResults = await splitPdfByRanges(currentFile.data, currentFile.name, ranges);
 
         if (splitResults.length === 1) {
-          // Single split output: provide directly as PDF
           const single = splitResults[0];
           cleanupResultUrl();
           const blob = new Blob([single.data as unknown as BlobPart], { type: 'application/pdf' });
@@ -631,13 +1236,6 @@ export const PdfProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             type: 'pdf',
           });
         } else {
-          // Multiple split outputs: zip bundle
-          setProcessing({
-            status: 'processing',
-            message: 'Bundling parts into ZIP...',
-            progress: 80,
-          });
-
           const zipBlob = await createZipBundle(splitResults);
           cleanupResultUrl();
           const url = URL.createObjectURL(zipBlob);
@@ -679,7 +1277,6 @@ export const PdfProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     [currentFile, cleanupResultUrl]
   );
 
-  // 5. Export Extracted Pages
   const exportExtractedPages = useCallback(
     async (pageItemIds?: string[]) => {
       if (!currentFile) return;
@@ -693,17 +1290,12 @@ export const PdfProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         return;
       }
 
-      setProcessing({
-        status: 'processing',
-        message: 'Extracting selected pages...',
-        progress: 40,
-      });
+      setProcessing({ status: 'processing', message: 'Extracting selected pages...', progress: 40 });
 
       try {
         const idSet = new Set(targetIds);
         const selectedItems = pages.filter((p) => idSet.has(p.id));
 
-        // Use organizePdf so any rotation applied in the organizer is preserved in the extraction!
         const pageConfigs = selectedItems.map((p) => ({
           originalIndex: p.originalIndex,
           rotation: p.rotation,
@@ -754,9 +1346,15 @@ export const PdfProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         mergeFiles,
         processing,
         result,
+        healthReport,
+        canUndo: undoStack.length > 0,
+        canRedo: redoStack.length > 0,
+        undo,
+        redo,
         loadFile,
         loadSampleDoc,
         clearCurrentFile,
+        updateActiveDocument,
         reorderPages,
         movePage,
         rotatePage,
@@ -768,6 +1366,23 @@ export const PdfProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         toggleSelectPage,
         selectAllPages,
         clearPageSelection,
+        insertBlankPageAt,
+        insertFromAnotherPdf,
+        replacePageWithPdf,
+        reverseAllPages,
+        removeDetectedBlankPages,
+        applyWatermark,
+        applyPageNumbers,
+        applyHeaderFooter,
+        compressDocument,
+        cleanMetadata,
+        applyAnnotations,
+        applySignature,
+        convertImagesToPdfAction,
+        convertPdfToImagesAction,
+        convertTextToPdfAction,
+        extractAllTextAction,
+        runHealthCheck,
         addMergeFiles,
         removeMergeFile,
         reorderMergeFiles,

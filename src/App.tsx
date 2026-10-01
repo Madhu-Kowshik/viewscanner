@@ -31,6 +31,17 @@ export const App: React.FC = () => {
                 <Route path="/merge" element={<WorkspacePage initialTool="merge" />} />
                 <Route path="/split" element={<WorkspacePage initialTool="split" />} />
                 <Route path="/extract" element={<WorkspacePage initialTool="extract" />} />
+                <Route path="/editor" element={<WorkspacePage initialTool="editor" />} />
+                <Route path="/sign" element={<WorkspacePage initialTool="sign" />} />
+                <Route path="/scanner" element={<WorkspacePage initialTool="scanner" />} />
+                <Route path="/ocr" element={<WorkspacePage initialTool="ocr" />} />
+                <Route path="/compress" element={<WorkspacePage initialTool="compress" />} />
+                <Route path="/watermark" element={<WorkspacePage initialTool="watermark" />} />
+                <Route path="/convert" element={<WorkspacePage initialTool="convert" />} />
+                <Route path="/protect" element={<WorkspacePage initialTool="protect" />} />
+                <Route path="/diagnostics" element={<WorkspacePage initialTool="diagnostics" />} />
+                <Route path="/compare" element={<WorkspacePage initialTool="compare" />} />
+                <Route path="/batch" element={<WorkspacePage initialTool="batch" />} />
 
                 {/* 404 Route */}
                 <Route path="*" element={<NotFoundPage />} />

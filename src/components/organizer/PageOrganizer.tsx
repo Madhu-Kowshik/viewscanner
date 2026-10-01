@@ -20,6 +20,10 @@ import {
   Scissors,
   CheckSquare,
   Square,
+  Plus,
+  ArrowDownUp,
+  FilePlus,
+  Eraser,
 } from 'lucide-react';
 import { usePdf } from '../../context/PdfContext';
 import { PageCard } from './PageCard';
@@ -45,6 +49,10 @@ export const PageOrganizer: React.FC = () => {
     clearPageSelection,
     exportOrganizedPdf,
     exportExtractedPages,
+    insertBlankPageAt,
+    insertFromAnotherPdf,
+    reverseAllPages,
+    removeDetectedBlankPages,
   } = usePdf();
 
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
@@ -177,6 +185,55 @@ export const PageOrganizer: React.FC = () => {
             <Download className="w-4 h-4 mr-1.5" />
             Save & Export PDF
           </Button>
+        </div>
+      </div>
+
+      {/* Extended Organizer Actions Bar */}
+      <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 bg-slate-50 dark:bg-slate-900/60 rounded-xl border border-slate-200/60 dark:border-slate-800/60 text-xs">
+        <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+          Page Operations:
+        </span>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={() => insertBlankPageAt(pages.length)}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-100 transition-colors shadow-2xs"
+            title="Insert a blank A4 page at the end of the document"
+          >
+            <Plus className="w-3.5 h-3.5 text-brand-600 dark:text-brand-400" />
+            Insert Blank Page
+          </button>
+
+          <label className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-100 transition-colors shadow-2xs cursor-pointer">
+            <FilePlus className="w-3.5 h-3.5 text-brand-600 dark:text-brand-400" />
+            Insert from Another PDF
+            <input
+              type="file"
+              accept="application/pdf"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) insertFromAnotherPdf(f, pages.length);
+              }}
+            />
+          </label>
+
+          <button
+            onClick={reverseAllPages}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-100 transition-colors shadow-2xs"
+            title="Reverse sequential order of all pages"
+          >
+            <ArrowDownUp className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+            Reverse Page Order
+          </button>
+
+          <button
+            onClick={removeDetectedBlankPages}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-100 transition-colors shadow-2xs"
+            title="Detect and remove empty / blank scanned pages"
+          >
+            <Eraser className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+            Remove Blank Pages
+          </button>
         </div>
       </div>
 

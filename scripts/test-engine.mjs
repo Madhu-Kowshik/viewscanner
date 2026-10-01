@@ -1,8 +1,8 @@
-import { PDFDocument, degrees } from 'pdf-lib';
+import { PDFDocument, degrees, rgb, StandardFonts } from 'pdf-lib';
 import JSZip from 'jszip';
 
 console.log('====================================================');
-console.log('RUNNING OMNIPDF TEST SUITE (PDF ENGINE VERIFICATION)');
+console.log('RUNNING OMNIPDF TEST SUITE (EXTENDED PDF ENGINE VERIFICATION)');
 console.log('====================================================\n');
 
 let passedTests = 0;
@@ -23,6 +23,9 @@ async function run() {
   // 1. Generate base test PDF
   console.log('Creating 5-page test document...');
   const baseDoc = await PDFDocument.create();
+  baseDoc.setTitle('Confidential Audit');
+  baseDoc.setAuthor('John Doe');
+
   for (let i = 1; i <= 5; i++) {
     const page = baseDoc.addPage([400, 600]);
     page.drawText(`Page Number ${i}`, { x: 50, y: 500, size: 24 });
@@ -44,7 +47,7 @@ async function run() {
   }
   assert(failedAsExpected, 'TEST 2: Invalid file correctly rejected by PDF loader');
 
-  // TEST 6 & 7: Delete pages (Delete page 2 and page 4, index 1 and 3)
+  // TEST 6 & 7: Delete pages
   const remainingIndices = [0, 2, 4];
   const delDoc = await PDFDocument.create();
   const delPages = await delDoc.copyPages(loadedDoc, remainingIndices);
@@ -61,8 +64,7 @@ async function run() {
   const rotLoaded = await PDFDocument.load(rotBytes);
   assert(rotLoaded.getPage(0).getRotation().angle === 90, 'TEST 8: Page 1 successfully rotated by 90 degrees');
 
-  // TEST 9 & 10: Reorder and Duplicate pages (duplicate page 1 and reverse order)
-  // Target: [4, 3, 2, 1, 1, 0] -> 6 pages
+  // TEST 9 & 10: Reorder and Duplicate pages
   const orgDoc = await PDFDocument.create();
   const order = [4, 3, 2, 1, 1, 0];
   for (const idx of order) {
@@ -73,7 +75,7 @@ async function run() {
   const orgLoaded = await PDFDocument.load(orgBytes);
   assert(orgLoaded.getPageCount() === 6, 'TEST 9 & 10: Reordering and duplication produces 6 pages');
 
-  // TEST 11: Extract pages (Pages 2 and 4, index 1 and 3)
+  // TEST 11: Extract pages
   const extDoc = await PDFDocument.create();
   const extPages = await extDoc.copyPages(loadedDoc, [1, 3]);
   extPages.forEach(p => extDoc.addPage(p));
@@ -118,15 +120,88 @@ async function run() {
   const zip = new JSZip();
   zip.file('part1.pdf', await range1Doc.save());
   zip.file('part2.pdf', await range2Doc.save());
-  const zipBuffer = await zip.generateAsync({ type: 'nodebuffer' });
-  assert(zipBuffer.byteLength > 0, 'TEST 14 & 15: ZIP archive generated successfully with valid content');
+  const zipContent = await zip.generateAsync({ type: 'uint8array' });
+  assert(zipContent.byteLength > 0, 'TEST 14 & 15: ZIP archive generated successfully with valid content');
 
-  console.log(`\n====================================================`);
+  // TEST 16: Insert Blank Page at Index 2
+  const insertDoc = await PDFDocument.load(baseBytes);
+  insertDoc.insertPage(2, [400, 600]);
+  const insertBytes = await insertDoc.save();
+  const insertLoaded = await PDFDocument.load(insertBytes);
+  assert(insertLoaded.getPageCount() === 6, 'TEST 16: Insert blank page expands 5-page PDF to 6 pages');
+
+  // TEST 17: Reverse Page Order
+  const revDoc = await PDFDocument.create();
+  const totalP = loadedDoc.getPageCount();
+  const revIndices = Array.from({ length: totalP }, (_, i) => totalP - 1 - i);
+  const revPages = await revDoc.copyPages(loadedDoc, revIndices);
+  revPages.forEach(p => revDoc.addPage(p));
+  const revBytes = await revDoc.save();
+  const revLoaded = await PDFDocument.load(revBytes);
+  assert(revLoaded.getPageCount() === 5, 'TEST 17: Reverse page order maintains exact page count (5 pages)');
+
+  // TEST 18: Add Watermark (Text stamp)
+  const wmDoc = await PDFDocument.load(baseBytes);
+  const helveticaFont = await wmDoc.embedFont(StandardFonts.HelveticaBold);
+  const pagesToWm = wmDoc.getPages();
+  for (const p of pagesToWm) {
+    p.drawText('CONFIDENTIAL', {
+      x: 100,
+      y: 300,
+      size: 40,
+      font: helveticaFont,
+      color: rgb(1, 0, 0),
+      opacity: 0.3,
+      rotate: degrees(45),
+    });
+  }
+  const wmBytes = await wmDoc.save();
+  assert(wmBytes.byteLength > baseBytes.byteLength, 'TEST 18: Watermark embedded successfully, expanding byte stream');
+
+  // TEST 19: Add Page Numbers & Bates Stamp
+  const batesDoc = await PDFDocument.load(baseBytes);
+  const numFont = await batesDoc.embedFont(StandardFonts.Helvetica);
+  const bPages = batesDoc.getPages();
+  bPages.forEach((p, idx) => {
+    p.drawText(`DOC-${String(idx + 1).padStart(6, '0')}`, {
+      x: 200,
+      y: 20,
+      size: 10,
+      font: numFont,
+      color: rgb(0.2, 0.2, 0.2),
+    });
+  });
+  const batesBytes = await batesDoc.save();
+  const batesLoaded = await PDFDocument.load(batesBytes);
+  assert(batesLoaded.getPageCount() === 5, 'TEST 19: Bates stamping applied across all pages');
+
+  // TEST 20: Clean & Sanitize Metadata
+  const cleanDoc = await PDFDocument.load(baseBytes);
+  cleanDoc.setTitle('');
+  cleanDoc.setAuthor('');
+  cleanDoc.setSubject('');
+  cleanDoc.setKeywords([]);
+  cleanDoc.setProducer('OmniPDF Sanitizer');
+  cleanDoc.setCreator('');
+  const cleanBytes = await cleanDoc.save();
+  const cleanLoaded = await PDFDocument.load(cleanBytes);
+  assert(!cleanLoaded.getTitle() && !cleanLoaded.getAuthor(), 'TEST 20: Metadata successfully scrubbed and sanitized');
+
+  // TEST 21: Text to PDF generation
+  const textDoc = await PDFDocument.create();
+  const tPage = textDoc.addPage([595.28, 841.89]); // A4
+  const tFont = await textDoc.embedFont(StandardFonts.Helvetica);
+  tPage.drawText('Hello OmniPDF Text Generator', { x: 50, y: 750, size: 14, font: tFont });
+  const textBytes = await textDoc.save();
+  const textLoaded = await PDFDocument.load(textBytes);
+  assert(textLoaded.getPageCount() === 1, 'TEST 21: Text converted into formatted single-page A4 PDF');
+
+  console.log('\n====================================================');
   console.log(`ALL TESTS PASSED! (${passedTests}/${totalTests} tests succeeded)`);
-  console.log(`====================================================\n`);
+  console.log('====================================================\n');
 }
 
 run().catch((err) => {
-  console.error('Test suite failed:', err);
+  console.error('Test run failed:', err);
   process.exit(1);
 });

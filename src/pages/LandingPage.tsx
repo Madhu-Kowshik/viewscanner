@@ -17,12 +17,23 @@ import {
   CheckCircle2,
   Lock,
   Zap,
+  Edit3,
+  PenTool,
+  Camera,
+  ScanText,
+  Minimize2,
+  Stamp,
+  ArrowLeftRight,
+  Activity,
+  GitCompare,
+  Layers,
 } from 'lucide-react';
 import { usePdf } from '../context/PdfContext';
 import { Button } from '../components/ui/Button';
+import { formatBytes } from '../lib/utils';
 
 export const LandingPage: React.FC = () => {
-  const { loadSampleDoc } = usePdf();
+  const { currentFile, pages, loadSampleDoc } = usePdf();
   const navigate = useNavigate();
 
   const handleOpenPdf = () => {
@@ -34,77 +45,77 @@ export const LandingPage: React.FC = () => {
     navigate('/organize');
   };
 
-  const tools = [
+  const featuredSuites = [
     {
       id: 'organize',
-      name: 'Organize Pages',
-      desc: 'Rearrange pages with visual drag & drop, rotate, and duplicate effortlessly.',
+      name: 'Organize & Merge',
+      desc: 'Rearrange pages with visual drag & drop, rotate, insert blank pages, or merge multiple files.',
       icon: LayoutGrid,
       path: '/organize',
       color: 'bg-indigo-50 text-indigo-600 dark:bg-indigo-950/60 dark:text-indigo-400',
     },
     {
-      id: 'viewer',
-      name: 'PDF Viewer',
-      desc: 'High-resolution rendering with zoom, fit width, page thumbnails, and fullscreen.',
-      icon: Eye,
-      path: '/viewer',
-      color: 'bg-blue-50 text-blue-600 dark:bg-blue-950/60 dark:text-blue-400',
-    },
-    {
-      id: 'merge',
-      name: 'Merge PDF',
-      desc: 'Combine multiple PDF files into a single unified document in any custom order.',
-      icon: FilePlus2,
-      path: '/merge',
-      color: 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/60 dark:text-emerald-400',
-    },
-    {
-      id: 'split',
-      name: 'Split PDF',
-      desc: 'Split documents into individual pages or create tailored parts by page ranges.',
-      icon: Split,
-      path: '/split',
-      color: 'bg-violet-50 text-violet-600 dark:bg-violet-950/60 dark:text-violet-400',
-    },
-    {
-      id: 'extract',
-      name: 'Extract Pages',
-      desc: 'Select specific pages to extract into a fresh, standalone PDF document.',
-      icon: Scissors,
-      path: '/extract',
-      color: 'bg-amber-50 text-amber-600 dark:bg-amber-950/60 dark:text-amber-400',
-    },
-    {
-      id: 'rotate',
-      name: 'Rotate Pages',
-      desc: 'Fix document orientations by rotating individual or all pages (90°, 180°, 270°).',
-      icon: RotateCw,
-      path: '/organize?action=rotate',
-      color: 'bg-cyan-50 text-cyan-600 dark:bg-cyan-950/60 dark:text-cyan-400',
-    },
-    {
-      id: 'delete',
-      name: 'Delete Pages',
-      desc: 'Remove unwanted, duplicate, or blank pages from your final document.',
-      icon: Trash2,
-      path: '/organize?action=delete',
+      id: 'editor',
+      name: 'Edit & Redact',
+      desc: 'Add text, draw, highlight, whiteout, and burn permanent pixel redactions.',
+      icon: Edit3,
+      path: '/editor',
       color: 'bg-rose-50 text-rose-600 dark:bg-rose-950/60 dark:text-rose-400',
     },
     {
-      id: 'duplicate',
-      name: 'Duplicate Pages',
-      desc: 'Clone pages in-place to replicate forms, certificates, or template pages.',
-      icon: Copy,
-      path: '/organize',
+      id: 'sign',
+      name: 'Sign Documents',
+      desc: 'Draw, type, or upload your digital signature and stamp it anywhere on any page.',
+      icon: PenTool,
+      path: '/sign',
+      color: 'bg-blue-50 text-blue-600 dark:bg-blue-950/60 dark:text-blue-400',
+    },
+    {
+      id: 'scanner',
+      name: 'Scanner & Magic Clean',
+      desc: 'Capture camera photos, bleach paper backgrounds, and convert to clean crisp PDFs.',
+      icon: Camera,
+      path: '/scanner',
+      color: 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/60 dark:text-emerald-400',
+    },
+    {
+      id: 'ocr',
+      name: 'OCR & Text Recognition',
+      desc: 'Extract machine-readable text from scanned paperwork with client-side neural OCR.',
+      icon: ScanText,
+      path: '/ocr',
       color: 'bg-purple-50 text-purple-600 dark:bg-purple-950/60 dark:text-purple-400',
+    },
+    {
+      id: 'compress',
+      name: 'Intelligent Compression',
+      desc: 'Reduce file size up to 85% with balanced, extreme, and lossless DPI presets.',
+      icon: Minimize2,
+      path: '/compress',
+      color: 'bg-amber-50 text-amber-600 dark:bg-amber-950/60 dark:text-amber-400',
+    },
+    {
+      id: 'watermark',
+      name: 'Watermarks & Bates',
+      desc: 'Add diagonal stamps, confidential watermarks, and legal Bates numbering.',
+      icon: Stamp,
+      path: '/watermark',
+      color: 'bg-cyan-50 text-cyan-600 dark:bg-cyan-950/60 dark:text-cyan-400',
+    },
+    {
+      id: 'diagnostics',
+      name: 'Health Audit & Batch',
+      desc: 'Audit document health, compare revisions, and run multi-file batch operations.',
+      icon: Activity,
+      path: '/diagnostics',
+      color: 'bg-teal-50 text-teal-600 dark:bg-teal-950/60 dark:text-teal-400',
     },
   ];
 
   return (
     <div className="flex flex-col">
       {/* HERO SECTION */}
-      <section className="relative overflow-hidden pt-12 pb-20 sm:pt-20 sm:pb-28">
+      <section className="relative overflow-hidden pt-12 pb-16 sm:pt-20 sm:pb-24">
         {/* Subtle backdrop glow */}
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[350px] bg-brand-500/10 blur-[120px] rounded-full pointer-events-none dark:bg-brand-600/15" />
 
@@ -112,32 +123,32 @@ export const LandingPage: React.FC = () => {
           {/* Privacy Pill */}
           <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-brand-50 border border-brand-200/80 text-brand-700 dark:bg-brand-950/60 dark:border-brand-900/60 dark:text-brand-300 text-xs font-semibold mb-6">
             <Lock className="w-3.5 h-3.5" />
-            <span>100% Client-Side • Your files stay on your device</span>
+            <span>100% Client-Side • Your files never leave your device</span>
           </div>
 
           <h1 className="text-4xl sm:text-6xl lg:text-7xl font-extrabold tracking-tight text-slate-900 dark:text-white leading-[1.1]">
             Your PDFs.{' '}
-            <span className="text-brand-600 dark:text-brand-400">One workspace.</span>
+            <span className="text-brand-600 dark:text-brand-400">One unified workspace.</span>
           </h1>
 
           <p className="mt-6 text-lg sm:text-xl text-slate-600 dark:text-slate-300 max-w-2xl mx-auto leading-relaxed">
-            Edit, organize, merge, split, rotate, and manage PDF documents directly in your browser. Fast, free, and completely private.
+            View, edit, organize, sign, scan, OCR, compress, and convert PDF documents directly inside your browser. Fast, private, and powerful.
           </p>
 
           {/* Primary CTA Buttons */}
           <div className="mt-8 flex flex-wrap items-center justify-center gap-3.5">
             <Button variant="primary" size="lg" onClick={handleOpenPdf} className="shadow-lg shadow-brand-500/25">
               <Upload className="w-4 h-4 mr-2" />
-              Open PDF
+              Open PDF Workspace
             </Button>
 
             <Button variant="outline" size="lg" onClick={handleTrySample} className="group">
               <Sparkles className="w-4 h-4 mr-2 text-amber-500 group-hover:rotate-12 transition-transform" />
-              Try with Sample PDF
+              Try Sample PDF
             </Button>
 
             <Button variant="secondary" size="lg" onClick={() => navigate('/tools')}>
-              Explore Tools
+              All 50+ Tools
               <ArrowRight className="w-4 h-4 ml-2" />
             </Button>
           </div>
@@ -154,11 +165,71 @@ export const LandingPage: React.FC = () => {
             </div>
             <div className="flex items-center gap-1.5">
               <ShieldCheck className="w-4 h-4 text-brand-500" />
-              <span>No signup or limits</span>
+              <span>No signup or page limits</span>
             </div>
           </div>
         </div>
       </section>
+
+      {/* SMART "WHAT CAN I DO WITH THIS DOCUMENT?" BANNER */}
+      {currentFile && (
+        <section className="bg-gradient-to-r from-brand-600 to-indigo-700 text-white py-6 px-4 shadow-inner">
+          <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
+            <div className="flex items-center gap-3 text-center md:text-left">
+              <div className="p-2.5 rounded-xl bg-white/10 backdrop-blur-md">
+                <FileText className="w-6 h-6 text-white" />
+              </div>
+              <div>
+                <h3 className="font-bold text-sm">
+                  Active Document: {currentFile.name} ({pages.length} pages • {formatBytes(currentFile.size)})
+                </h3>
+                <p className="text-xs text-brand-100">
+                  What would you like to do next with this document?
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              <button
+                onClick={() => navigate('/organize')}
+                className="px-3 py-1.5 rounded-lg bg-white/15 hover:bg-white/25 text-xs font-medium backdrop-blur-md transition-colors"
+              >
+                Organize Pages
+              </button>
+              <button
+                onClick={() => navigate('/editor')}
+                className="px-3 py-1.5 rounded-lg bg-white/15 hover:bg-white/25 text-xs font-medium backdrop-blur-md transition-colors"
+              >
+                Edit & Redact
+              </button>
+              <button
+                onClick={() => navigate('/sign')}
+                className="px-3 py-1.5 rounded-lg bg-white/15 hover:bg-white/25 text-xs font-medium backdrop-blur-md transition-colors"
+              >
+                Sign Contract
+              </button>
+              <button
+                onClick={() => navigate('/compress')}
+                className="px-3 py-1.5 rounded-lg bg-white/15 hover:bg-white/25 text-xs font-medium backdrop-blur-md transition-colors"
+              >
+                Compress Size
+              </button>
+              <button
+                onClick={() => navigate('/ocr')}
+                className="px-3 py-1.5 rounded-lg bg-white/15 hover:bg-white/25 text-xs font-medium backdrop-blur-md transition-colors"
+              >
+                Extract OCR Text
+              </button>
+              <button
+                onClick={() => navigate('/diagnostics')}
+                className="px-3 py-1.5 rounded-lg bg-white text-brand-700 hover:bg-brand-50 text-xs font-bold transition-colors shadow-sm"
+              >
+                Health Check →
+              </button>
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* QUICK TOOLS GRID */}
       <section className="py-16 bg-slate-100/50 dark:bg-slate-900/40 border-y border-slate-200/80 dark:border-slate-800/80">
@@ -166,19 +237,19 @@ export const LandingPage: React.FC = () => {
           <div className="flex flex-col sm:flex-row sm:items-end justify-between mb-10">
             <div>
               <span className="text-xs font-bold uppercase tracking-wider text-brand-600 dark:text-brand-400">
-                Full Utility Suite
+                Core Feature Suites
               </span>
               <h2 className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-white mt-1">
-                Everything you need to manage PDFs
+                Everything you need to master documents
               </h2>
             </div>
             <p className="text-sm text-slate-500 dark:text-slate-400 mt-2 sm:mt-0">
-              Select any tool below to launch the workspace
+              Select any tool suite to begin
             </p>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {tools.map((tool) => {
+            {featuredSuites.map((tool) => {
               const Icon = tool.icon;
               return (
                 <div
@@ -199,7 +270,7 @@ export const LandingPage: React.FC = () => {
                   </div>
 
                   <div className="mt-5 pt-3 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between text-xs font-semibold text-brand-600 dark:text-brand-400">
-                    <span>Launch Tool</span>
+                    <span>Launch Workspace</span>
                     <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-1" />
                   </div>
                 </div>
@@ -219,7 +290,7 @@ export const LandingPage: React.FC = () => {
             How OmniPDF Works
           </h2>
           <p className="text-sm text-slate-500 dark:text-slate-400 mt-2 max-w-lg mx-auto">
-            A frictionless three-step process built directly into your browser.
+            A frictionless continuous process built directly into your browser memory.
           </p>
 
           <div className="mt-12 grid grid-cols-1 md:grid-cols-3 gap-8">
@@ -228,10 +299,10 @@ export const LandingPage: React.FC = () => {
                 01
               </span>
               <h3 className="text-base font-bold text-slate-900 dark:text-white">
-                Choose your PDF
+                Choose your document
               </h3>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-2 leading-relaxed">
-                Drag and drop your file or choose one from your device. Your file is read locally via modern HTML5 APIs.
+                Drag and drop your file or capture via scanner. Your document is read locally via modern HTML5 memory buffers.
               </p>
             </div>
 
@@ -243,7 +314,7 @@ export const LandingPage: React.FC = () => {
                 Make your changes
               </h3>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-2 leading-relaxed">
-                Reorder, rotate, split, merge, or delete pages with instant visual feedback and thumbnail previews.
+                Organize, sign, compress, redact, or annotate with instant visual previews and complete Undo / Redo support.
               </p>
             </div>
 
@@ -252,10 +323,10 @@ export const LandingPage: React.FC = () => {
                 03
               </span>
               <h3 className="text-base font-bold text-slate-900 dark:text-white">
-                Download the result
+                Save & Export
               </h3>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-2 leading-relaxed">
-                Download the verified new PDF or ZIP archive immediately. Zero waiting for remote servers to render.
+                Save back into your continuous workspace or download immediately. Zero waiting for remote servers to render.
               </p>
             </div>
           </div>
@@ -298,12 +369,12 @@ export const LandingPage: React.FC = () => {
               OmniPDF
             </span>
             <span className="text-xs text-slate-400">
-              — Browser-based PDF Workspace
+              — All-in-One Client-Side Document Workspace
             </span>
           </div>
 
           <p className="text-xs text-slate-500 dark:text-slate-400">
-            🔒 100% Client-Side • No server storage • Private & Secure
+            🔒 100% In-Browser Privacy • Zero Server Uploads • Fast & Responsive
           </p>
         </div>
       </footer>
