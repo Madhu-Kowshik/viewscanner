@@ -21,6 +21,10 @@ import {
   Layers,
   X,
   ArrowRight,
+  Type,
+  FormInput,
+  Wrench,
+  Workflow,
 } from 'lucide-react';
 import { usePdf } from '../../context/PdfContext';
 
@@ -178,6 +182,42 @@ export const ALL_TOOLS: ToolIntent[] = [
     path: '/batch',
     icon: Layers,
     keywords: ['batch', 'bulk', 'multi file', 'queue', 'all files', 'simultaneous'],
+  },
+  {
+    id: 'scanned-editor',
+    title: 'Edit Text Inside Scanned PDF',
+    category: 'Edit',
+    description: 'OCR detection, click-to-edit scanned words, and background patch reconstruction',
+    path: '/scanned-editor',
+    icon: Type,
+    keywords: ['scanned', 'edit scanned', 'ocr edit', 'replace text', 'scanned pdf', 'paper edit', 'typo'],
+  },
+  {
+    id: 'forms',
+    title: 'Fill & Create PDF Forms',
+    category: 'Forms',
+    description: 'Detect and fill AcroForm fields, add new text fields, checkboxes, and flatten',
+    path: '/forms',
+    icon: FormInput,
+    keywords: ['form', 'fill form', 'acroform', 'checkbox', 'text field', 'form builder', 'flatten form'],
+  },
+  {
+    id: 'repair',
+    title: 'Repair Corrupt PDF',
+    category: 'Repair',
+    description: 'Diagnose and repair broken cross-reference tables and recover readable streams',
+    path: '/repair',
+    icon: Wrench,
+    keywords: ['repair', 'fix', 'corrupt', 'broken', 'damaged', 'cannot open', 'recover'],
+  },
+  {
+    id: 'workflows',
+    title: 'Guided Document Workflows',
+    category: 'Workflows',
+    description: 'Multi-step automation: Scan & OCR & Edit, Sign & Secure, Audit & Archive',
+    path: '/workflows',
+    icon: Workflow,
+    keywords: ['workflow', 'automation', 'pipeline', 'multi step', 'batch wizard', 'routine'],
   },
 ];
 

@@ -28,6 +28,10 @@ import {
   FileImage,
   Lock,
   Search,
+  Type,
+  FormInput,
+  Wrench,
+  Workflow,
 } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 
@@ -114,6 +118,22 @@ export const ToolsPage: React.FC = () => {
           icon: Edit3,
           path: '/editor',
           badge: 'New',
+        },
+        {
+          id: 'scanned-editor-tool',
+          name: 'Edit Text Inside Scanned PDF',
+          desc: 'Neural OCR word detection, click-to-edit scanned documents, and hybrid background tone reconstruction.',
+          icon: Type,
+          path: '/scanned-editor',
+          badge: 'Breakthrough',
+        },
+        {
+          id: 'forms-tool',
+          name: 'Fill & Build AcroForms',
+          desc: 'Detect and fill interactive form fields, add fillable text inputs/checkboxes, and flatten.',
+          icon: FormInput,
+          path: '/forms',
+          badge: 'Interactive',
         },
         {
           id: 'redact-tool',
@@ -227,6 +247,29 @@ export const ToolsPage: React.FC = () => {
           icon: Layers,
           path: '/batch',
           badge: 'Power Tool',
+        },
+        {
+          id: 'repair-tool',
+          name: 'Repair Corrupt PDF',
+          desc: 'Rebuild broken cross-reference tables, fix dangling pointer dictionaries, and restore unreadable streams.',
+          icon: Wrench,
+          path: '/repair',
+          badge: 'Recovery',
+        },
+      ],
+    },
+    {
+      id: 'workflows',
+      title: 'Automated Document Workflows',
+      description: 'Multi-step guided pipelines that automate end-to-end document routines',
+      tools: [
+        {
+          id: 'workflows-tool',
+          name: 'Guided Document Workflows',
+          desc: 'Chain complex tasks: Scan & OCR & Edit, Sign & Secure Contract, or Audit & Optimize & Archive.',
+          icon: Workflow,
+          path: '/workflows',
+          badge: 'Automation',
         },
       ],
     },

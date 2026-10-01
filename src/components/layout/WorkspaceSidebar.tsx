@@ -18,6 +18,10 @@ import {
   GitCompare,
   Layers,
   FileText,
+  Type,
+  FormInput,
+  Wrench,
+  Workflow,
 } from 'lucide-react';
 import { usePdf } from '../../context/PdfContext';
 import { formatBytes } from '../../lib/utils';
@@ -37,9 +41,11 @@ export const WorkspaceSidebar: React.FC = () => {
       ],
     },
     {
-      title: 'Edit & Sign',
+      title: 'Edit & Forms',
       tools: [
         { id: 'editor', label: 'Edit & Annotate', path: '/editor', icon: Edit3 },
+        { id: 'scanned-editor', label: 'Scanned Text Editor', path: '/scanned-editor', icon: Type },
+        { id: 'forms', label: 'Fill & Build Forms', path: '/forms', icon: FormInput },
         { id: 'sign', label: 'Sign Document', path: '/sign', icon: PenTool },
       ],
     },
@@ -59,12 +65,19 @@ export const WorkspaceSidebar: React.FC = () => {
       ],
     },
     {
-      title: 'Security & Audit',
+      title: 'Security & Repair',
       tools: [
         { id: 'protect', label: 'Sanitize & Privacy', path: '/protect', icon: ShieldCheck },
+        { id: 'repair', label: 'Repair Damaged PDF', path: '/repair', icon: Wrench },
         { id: 'diagnostics', label: 'Document Health', path: '/diagnostics', icon: Activity },
         { id: 'compare', label: 'Compare Documents', path: '/compare', icon: GitCompare },
         { id: 'batch', label: 'Batch Processor', path: '/batch', icon: Layers },
+      ],
+    },
+    {
+      title: 'Automation',
+      tools: [
+        { id: 'workflows', label: 'Guided Workflows', path: '/workflows', icon: Workflow },
       ],
     },
   ];

@@ -9,27 +9,30 @@ import {
   AlertTriangle,
   CheckCircle2,
   Zap,
-  Info,
+  Save,
+  KeyRound,
   ExternalLink,
 } from 'lucide-react';
 import { usePdf } from '../../context/PdfContext';
 import { FileDropzone } from '../common/FileDropzone';
 import { Button } from '../ui/Button';
 import { PDFDocument } from 'pdf-lib';
+import { updatePdfMetadata } from '../../lib/pdf/pdf-engine';
 
 export const ProtectWorkspace: React.FC = () => {
   const navigate = useNavigate();
-  const { currentFile, loadFile, cleanMetadata, processing } = usePdf();
+  const { currentFile, loadFile, cleanMetadata, updateActiveDocument, processing } = usePdf();
 
-  const [metadata, setMetadata] = useState<{
-    title?: string;
-    author?: string;
-    subject?: string;
-    creator?: string;
-    producer?: string;
-    creationDate?: string;
-    modificationDate?: string;
-  }>({});
+  const [title, setTitle] = useState('');
+  const [author, setAuthor] = useState('');
+  const [subject, setSubject] = useState('');
+  const [keywords, setKeywords] = useState('');
+  const [creator, setCreator] = useState('');
+  const [producer, setProducer] = useState('');
+  const [creationDate, setCreationDate] = useState('');
+  const [modificationDate, setModificationDate] = useState('');
+
+  const [activeTab, setActiveTab] = useState<'metadata' | 'encryption' | 'redaction'>('metadata');
 
   useEffect(() => {
     if (!currentFile) return;
@@ -37,15 +40,14 @@ export const ProtectWorkspace: React.FC = () => {
     const readMeta = async () => {
       try {
         const doc = await PDFDocument.load(currentFile.data, { ignoreEncryption: true });
-        setMetadata({
-          title: doc.getTitle() || undefined,
-          author: doc.getAuthor() || undefined,
-          subject: doc.getSubject() || undefined,
-          creator: doc.getCreator() || undefined,
-          producer: doc.getProducer() || undefined,
-          creationDate: doc.getCreationDate() ? doc.getCreationDate()?.toLocaleString() : undefined,
-          modificationDate: doc.getModificationDate() ? doc.getModificationDate()?.toLocaleString() : undefined,
-        });
+        setTitle(doc.getTitle() || '');
+        setAuthor(doc.getAuthor() || '');
+        setSubject(doc.getSubject() || '');
+        setKeywords(doc.getKeywords() || '');
+        setCreator(doc.getCreator() || '');
+        setProducer(doc.getProducer() || '');
+        setCreationDate(doc.getCreationDate() ? doc.getCreationDate()!.toLocaleString() : '');
+        setModificationDate(doc.getModificationDate() ? doc.getModificationDate()!.toLocaleString() : '');
       } catch (e) {
         console.error('Failed reading metadata', e);
       }
@@ -54,10 +56,34 @@ export const ProtectWorkspace: React.FC = () => {
     readMeta();
   }, [currentFile]);
 
+  const handleSaveMetadata = async () => {
+    if (!currentFile) return;
+
+    try {
+      const updatedPdf = await updatePdfMetadata(currentFile.data, {
+        title,
+        author,
+        subject,
+        keywords: keywords.split(',').map((k) => k.trim()).filter(Boolean),
+        creator,
+        producer,
+      });
+
+      await updateActiveDocument(updatedPdf, 'Update Document Metadata');
+    } catch (err) {
+      console.error('Failed saving metadata:', err);
+    }
+  };
+
   const handleScrubMetadata = async () => {
     if (!currentFile) return;
     await cleanMetadata();
-    setMetadata({});
+    setTitle('');
+    setAuthor('');
+    setSubject('');
+    setKeywords('');
+    setCreator('');
+    setProducer('OmniPDF Sanitizer');
   };
 
   if (!currentFile) {
@@ -68,21 +94,19 @@ export const ProtectWorkspace: React.FC = () => {
             <ShieldCheck className="w-6 h-6" />
           </div>
           <h2 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
-            Document Security & Sanitization
+            Document Security & Metadata
           </h2>
           <p className="text-sm text-slate-500 dark:text-slate-400 max-w-md mx-auto">
-            Scrub hidden metadata, author identities, tracking identifiers, and prepare sensitive files for safe distribution.
+            Edit or scrub metadata, author identities, tracking identifiers, and prepare sensitive files for safe distribution.
           </p>
         </div>
 
         <div className="w-full">
-          <FileDropzone onFileSelected={loadFile} />
+          <FileDropzone />
         </div>
       </div>
     );
   }
-
-  const hasAnyMetadata = Object.values(metadata).some((v) => !!v);
 
   return (
     <div className="max-w-4xl mx-auto space-y-6 pb-12">
@@ -94,7 +118,7 @@ export const ProtectWorkspace: React.FC = () => {
           </div>
           <div>
             <h1 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
-              Privacy & Metadata Sanitizer
+              Privacy, Metadata & Security
             </h1>
             <p className="text-xs text-slate-500 dark:text-slate-400">
               Active file: <span className="font-semibold text-slate-700 dark:text-slate-300">{currentFile.name}</span>
@@ -102,103 +126,220 @@ export const ProtectWorkspace: React.FC = () => {
           </div>
         </div>
 
-        <Button
-          onClick={handleScrubMetadata}
-          disabled={processing.status === 'processing'}
-          className="gap-2 bg-rose-600 hover:bg-rose-700 text-white font-medium text-xs shadow-sm"
+        <div className="flex items-center gap-2">
+          <Button
+            onClick={handleScrubMetadata}
+            disabled={processing.status === 'processing'}
+            className="gap-2 bg-rose-600 hover:bg-rose-700 text-white font-medium text-xs shadow-sm"
+          >
+            <Trash2 className="w-4 h-4" />
+            Scrub All Metadata
+          </Button>
+
+          <Button
+            onClick={handleSaveMetadata}
+            disabled={processing.status === 'processing'}
+            className="gap-2 bg-brand-600 hover:bg-brand-700 text-white font-medium text-xs shadow-sm"
+          >
+            <Save className="w-4 h-4" />
+            Save Metadata Changes
+          </Button>
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <div className="flex border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-4 rounded-xl">
+        <button
+          onClick={() => setActiveTab('metadata')}
+          className={`flex items-center gap-2 px-4 py-3.5 text-xs font-semibold border-b-2 transition-all ${
+            activeTab === 'metadata'
+              ? 'border-brand-600 text-brand-600 dark:text-brand-400'
+              : 'border-transparent text-slate-500 hover:text-slate-900 dark:hover:text-slate-200'
+          }`}
         >
-          <Trash2 className="w-4 h-4" />
-          Scrub All Metadata
-        </Button>
+          <FileText className="w-4 h-4" />
+          Edit & View Metadata
+        </button>
+
+        <button
+          onClick={() => setActiveTab('redaction')}
+          className={`flex items-center gap-2 px-4 py-3.5 text-xs font-semibold border-b-2 transition-all ${
+            activeTab === 'redaction'
+              ? 'border-brand-600 text-brand-600 dark:text-brand-400'
+              : 'border-transparent text-slate-500 hover:text-slate-900 dark:hover:text-slate-200'
+          }`}
+        >
+          <EyeOff className="w-4 h-4" />
+          Permanent Redaction
+        </button>
+
+        <button
+          onClick={() => setActiveTab('encryption')}
+          className={`flex items-center gap-2 px-4 py-3.5 text-xs font-semibold border-b-2 transition-all ${
+            activeTab === 'encryption'
+              ? 'border-brand-600 text-brand-600 dark:text-brand-400'
+              : 'border-transparent text-slate-500 hover:text-slate-900 dark:hover:text-slate-200'
+          }`}
+        >
+          <KeyRound className="w-4 h-4" />
+          Password & Permissions
+        </button>
       </div>
 
-      {/* Metadata Audit Card */}
-      <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
-        <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
-          <div className="flex items-center gap-2">
-            <FileText className="w-4 h-4 text-brand-600 dark:text-brand-400" />
-            <h3 className="text-sm font-semibold text-slate-900 dark:text-white">
-              Embedded Metadata Audit
-            </h3>
+      {/* Tab 1: Edit & View Metadata */}
+      {activeTab === 'metadata' && (
+        <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-5">
+          <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+            <div>
+              <h3 className="text-sm font-semibold text-slate-900 dark:text-white">
+                Document Metadata Fields
+              </h3>
+              <p className="text-xs text-slate-500">
+                Edit document title, author credentials, subject, or keywords.
+              </p>
+            </div>
           </div>
-          <span className={`text-xs font-semibold px-2.5 py-0.5 rounded-full ${
-            hasAnyMetadata
-              ? 'bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300'
-              : 'bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300'
-          }`}>
-            {hasAnyMetadata ? 'Contains Metadata Tags' : 'Clean & Sanitized'}
-          </span>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1 block">
+                Document Title
+              </label>
+              <input
+                type="text"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="e.g. Annual Financial Statement 2026"
+                className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500"
+              />
+            </div>
+
+            <div>
+              <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1 block">
+                Author / Creator Name
+              </label>
+              <input
+                type="text"
+                value={author}
+                onChange={(e) => setAuthor(e.target.value)}
+                placeholder="e.g. John Doe"
+                className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500"
+              />
+            </div>
+
+            <div>
+              <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1 block">
+                Subject
+              </label>
+              <input
+                type="text"
+                value={subject}
+                onChange={(e) => setSubject(e.target.value)}
+                placeholder="e.g. Corporate Audit"
+                className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500"
+              />
+            </div>
+
+            <div>
+              <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1 block">
+                Keywords (Comma-separated)
+              </label>
+              <input
+                type="text"
+                value={keywords}
+                onChange={(e) => setKeywords(e.target.value)}
+                placeholder="audit, finance, report"
+                className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500"
+              />
+            </div>
+
+            <div>
+              <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1 block">
+                PDF Producer Tool
+              </label>
+              <input
+                type="text"
+                value={producer}
+                onChange={(e) => setProducer(e.target.value)}
+                className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-2 text-xs font-mono"
+              />
+            </div>
+
+            <div>
+              <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1 block">
+                Creation Software / Application
+              </label>
+              <input
+                type="text"
+                value={creator}
+                onChange={(e) => setCreator(e.target.value)}
+                className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-2 text-xs font-mono"
+              />
+            </div>
+          </div>
+
+          {(creationDate || modificationDate) && (
+            <div className="pt-3 border-t border-slate-100 dark:border-slate-800 text-xs text-slate-400 flex flex-wrap gap-4 font-mono">
+              {creationDate && <span>Created: {creationDate}</span>}
+              {modificationDate && <span>Modified: {modificationDate}</span>}
+            </div>
+          )}
         </div>
+      )}
 
-        <p className="text-xs text-slate-500 dark:text-slate-400">
-          PDF documents often secretly contain author names, operating system identifiers, software versions, and edit histories that should be removed prior to public distribution or legal filing.
-        </p>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
-          <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs">
-            <span className="text-slate-400 block mb-0.5 font-medium">Document Title:</span>
-            <span className="font-semibold text-slate-800 dark:text-slate-200 break-all">
-              {metadata.title || <em className="text-slate-400 font-normal">None detected</em>}
-            </span>
-          </div>
-
-          <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs">
-            <span className="text-slate-400 block mb-0.5 font-medium">Author / Owner:</span>
-            <span className="font-semibold text-slate-800 dark:text-slate-200 break-all">
-              {metadata.author || <em className="text-slate-400 font-normal">None detected</em>}
-            </span>
-          </div>
-
-          <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs">
-            <span className="text-slate-400 block mb-0.5 font-medium">PDF Producer Engine:</span>
-            <span className="font-semibold text-slate-800 dark:text-slate-200 break-all">
-              {metadata.producer || <em className="text-slate-400 font-normal">None detected</em>}
-            </span>
-          </div>
-
-          <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs">
-            <span className="text-slate-400 block mb-0.5 font-medium">Creation Software:</span>
-            <span className="font-semibold text-slate-800 dark:text-slate-200 break-all">
-              {metadata.creator || <em className="text-slate-400 font-normal">None detected</em>}
-            </span>
-          </div>
-
-          <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs">
-            <span className="text-slate-400 block mb-0.5 font-medium">Created Timestamp:</span>
-            <span className="font-semibold text-slate-800 dark:text-slate-200 break-all">
-              {metadata.creationDate || <em className="text-slate-400 font-normal">None detected</em>}
-            </span>
-          </div>
-
-          <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs">
-            <span className="text-slate-400 block mb-0.5 font-medium">Modified Timestamp:</span>
-            <span className="font-semibold text-slate-800 dark:text-slate-200 break-all">
-              {metadata.modificationDate || <em className="text-slate-400 font-normal">None detected</em>}
-            </span>
-          </div>
-        </div>
-      </div>
-
-      {/* Permanent Redaction Studio Callout */}
-      <div className="bg-gradient-to-r from-slate-900 to-slate-800 text-white p-6 rounded-2xl border border-slate-700 shadow-md flex flex-col sm:flex-row items-center justify-between gap-6">
-        <div className="space-y-2">
+      {/* Tab 2: Permanent Redaction */}
+      {activeTab === 'redaction' && (
+        <div className="bg-gradient-to-r from-slate-900 to-slate-800 text-white p-6 rounded-2xl border border-slate-700 shadow-md space-y-4">
           <div className="flex items-center gap-2">
             <EyeOff className="w-5 h-5 text-rose-400" />
-            <h3 className="font-bold text-base">Permanent Redaction Studio</h3>
+            <h3 className="font-bold text-base">Permanent Pixel Redaction Studio</h3>
           </div>
-          <p className="text-xs text-slate-300 leading-relaxed max-w-xl">
-            Never use black marker pens or surface highlighter overlays to hide SSNs, financial records, or names. OmniPDF's Redaction engine permanently burns blackouts into document pixels so data cannot be recovered by text copying or OCR inspection.
+          <p className="text-xs text-slate-300 leading-relaxed max-w-2xl">
+            Never use black marker pens or surface highlighter overlays to hide SSNs, financial records, or names. OmniPDF's Redaction engine permanently burns blackouts into document pixels and removes underlying vector text so data cannot be recovered by text copying or OCR inspection.
           </p>
-        </div>
 
-        <Button
-          onClick={() => navigate('/editor')}
-          className="bg-rose-600 hover:bg-rose-500 text-white shrink-0 gap-2 text-xs font-semibold px-4 py-2.5"
-        >
-          Open Redaction Studio
-          <ExternalLink className="w-3.5 h-3.5" />
-        </Button>
-      </div>
+          <div className="pt-2">
+            <Button
+              onClick={() => navigate('/editor')}
+              className="bg-rose-600 hover:bg-rose-500 text-white gap-2 text-xs font-semibold"
+            >
+              Open Redaction Studio in Editor
+              <ExternalLink className="w-3.5 h-3.5" />
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Tab 3: Password & Permissions */}
+      {activeTab === 'encryption' && (
+        <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
+          <div className="flex items-center gap-2 pb-3 border-b border-slate-100 dark:border-slate-800">
+            <KeyRound className="w-4 h-4 text-brand-600 dark:text-brand-400" />
+            <h3 className="text-sm font-semibold text-slate-900 dark:text-white">
+              Password Protection & Permissions
+            </h3>
+          </div>
+
+          <div className="space-y-3 text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+            <p>
+              OmniPDF supports loading encrypted and password-protected PDF files directly in your browser.
+            </p>
+            <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-2">
+              <span className="font-semibold text-slate-900 dark:text-white block">
+                Standard Security Principles:
+              </span>
+              <ul className="list-disc pl-5 space-y-1">
+                <li>
+                  <strong>Legitimate Password Removal:</strong> When you provide the valid document password, OmniPDF decrypts the internal stream and lets you export a clean, unencrypted PDF.
+                </li>
+                <li>
+                  <strong>Permissions:</strong> Standard encryption allows setting owner passwords for printing and text copying restrictions.
+                </li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

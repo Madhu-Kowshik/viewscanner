@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback, useRef } from 'react';
+import React, { createContext, useContext, useState, useCallback, useRef, useEffect } from 'react';
 import {
   PdfFileInfo,
   PdfPageItem,
@@ -41,6 +41,11 @@ import {
 import { createSamplePdf } from '../lib/pdf/sample-pdf';
 import { addRecentFile } from '../lib/recent-files';
 import { generateId, getBaseFileName, sanitizeFileName } from '../lib/utils';
+import {
+  saveSessionDocument,
+  getSavedSessionDocument,
+  clearSavedSessionDocument,
+} from '../lib/storage/indexed-db';
 
 interface DocumentSnapshot {
   file: PdfFileInfo;
@@ -55,6 +60,11 @@ interface PdfContextType {
   processing: ProcessingState;
   result: ProcessedResult | null;
   healthReport: PdfHealthReport | null;
+
+  // Autosave / Session Recovery
+  savedSession: { name: string; size: number; pageCount: number; timestamp: number } | null;
+  resumeSavedSession: () => Promise<void>;
+  dismissSavedSession: () => void;
 
   // Undo / Redo
   canUndo: boolean;
@@ -80,6 +90,7 @@ interface PdfContextType {
   toggleSelectPage: (id: string, event?: React.MouseEvent) => void;
   selectAllPages: () => void;
   clearPageSelection: () => void;
+  selectPagesByIds: (ids: string[]) => void;
 
   // Extended Organizer Tools
   insertBlankPageAt: (atIndex: number) => Promise<void>;
@@ -132,9 +143,36 @@ export const PdfProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [result, setResult] = useState<ProcessedResult | null>(null);
   const [healthReport, setHealthReport] = useState<PdfHealthReport | null>(null);
 
-  // Undo / Redo Stacks
   const [undoStack, setUndoStack] = useState<DocumentSnapshot[]>([]);
   const [redoStack, setRedoStack] = useState<DocumentSnapshot[]>([]);
+
+  // Autosaved session recovery state
+  const [savedSession, setSavedSession] = useState<{
+    name: string;
+    size: number;
+    pageCount: number;
+    timestamp: number;
+  } | null>(null);
+  const savedSessionDataRef = useRef<ArrayBuffer | null>(null);
+
+  // Check IndexedDB for previous autosaved session
+  useEffect(() => {
+    let active = true;
+    getSavedSessionDocument().then((session) => {
+      if (active && session && session.data && !currentFile) {
+        savedSessionDataRef.current = session.data;
+        setSavedSession({
+          name: session.name,
+          size: session.size,
+          pageCount: session.pageCount,
+          timestamp: session.timestamp,
+        });
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const currentResultUrlRef = useRef<string | null>(null);
 
@@ -254,6 +292,10 @@ export const PdfProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           operation: 'Open PDF',
         });
 
+        // Autosave active document session to IndexedDB
+        setSavedSession(null);
+        saveSessionDocument(fileName, fileSize, pageCount, buffer, 'Open PDF');
+
         setProcessing({ status: 'idle', message: '' });
 
         // Run health check in background
@@ -293,6 +335,21 @@ export const PdfProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     [clearResult]
   );
 
+  const resumeSavedSession = useCallback(async () => {
+    if (savedSession && savedSessionDataRef.current) {
+      const data = savedSessionDataRef.current;
+      const name = savedSession.name;
+      setSavedSession(null);
+      await loadFile({ data, name });
+    }
+  }, [savedSession, loadFile]);
+
+  const dismissSavedSession = useCallback(() => {
+    setSavedSession(null);
+    savedSessionDataRef.current = null;
+    clearSavedSessionDocument();
+  }, []);
+
   const loadSampleDoc = useCallback(async () => {
     try {
       setProcessing({ status: 'reading', message: 'Generating sample PDF document...' });
@@ -315,6 +372,9 @@ export const PdfProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setHealthReport(null);
     clearResult();
     setProcessing({ status: 'idle', message: '' });
+    clearSavedSessionDocument();
+    setSavedSession(null);
+    savedSessionDataRef.current = null;
   }, [clearResult]);
 
   // In-place document updater for continuous workspace workflow
@@ -353,6 +413,15 @@ export const PdfProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         pageCount: updatedFile.pageCount,
         operation: operationName,
       });
+
+      // Autosave in-place update into IndexedDB
+      saveSessionDocument(
+        updatedFile.name,
+        updatedFile.size,
+        updatedFile.pageCount,
+        rawBuffer,
+        operationName
+      );
 
       // Rerender thumbnails in background
       setTimeout(async () => {
@@ -506,6 +575,10 @@ export const PdfProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const clearPageSelection = useCallback(() => {
     setSelectedPageIds(new Set());
+  }, []);
+
+  const selectPagesByIds = useCallback((ids: string[]) => {
+    setSelectedPageIds(new Set(ids));
   }, []);
 
   // NEW EXTENDED ORGANIZER ACTIONS
@@ -1347,6 +1420,9 @@ export const PdfProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         processing,
         result,
         healthReport,
+        savedSession,
+        resumeSavedSession,
+        dismissSavedSession,
         canUndo: undoStack.length > 0,
         canRedo: redoStack.length > 0,
         undo,
@@ -1366,6 +1442,7 @@ export const PdfProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         toggleSelectPage,
         selectAllPages,
         clearPageSelection,
+        selectPagesByIds,
         insertBlankPageAt,
         insertFromAnotherPdf,
         replacePageWithPdf,

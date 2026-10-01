@@ -18,8 +18,15 @@ import { ProtectWorkspace } from '../components/protect/ProtectWorkspace';
 import { PdfHealthCheck } from '../components/diagnostics/PdfHealthCheck';
 import { PdfCompare } from '../components/compare/PdfCompare';
 import { BatchWorkspace } from '../components/batch/BatchWorkspace';
+import { ScannedTextEditor } from '../components/scanned-editor/ScannedTextEditor';
+import { FormWorkspace } from '../components/forms/FormWorkspace';
+import { PdfRepairWorkspace } from '../components/repair/PdfRepairWorkspace';
+import { WorkflowsWorkspace } from '../components/workflows/WorkflowsWorkspace';
 import { ResultModal } from '../components/common/ResultModal';
 import { ProcessingOverlay } from '../components/common/ProcessingOverlay';
+import { Button } from '../components/ui/Button';
+import { Sparkles } from 'lucide-react';
+import { formatBytes } from '../lib/utils';
 import { usePdf } from '../context/PdfContext';
 
 export interface WorkspacePageProps {
@@ -29,7 +36,7 @@ export interface WorkspacePageProps {
 export const WorkspacePage: React.FC<WorkspacePageProps> = ({ initialTool = 'organize' }) => {
   const location = useLocation();
   const navigate = useNavigate();
-  const { currentFile } = usePdf();
+  const { currentFile, savedSession, resumeSavedSession, dismissSavedSession } = usePdf();
 
   // Determine active tool from current path
   const path = location.pathname;
@@ -50,6 +57,10 @@ export const WorkspacePage: React.FC<WorkspacePageProps> = ({ initialTool = 'org
   else if (path.includes('/diagnostics')) activeTool = 'diagnostics';
   else if (path.includes('/compare')) activeTool = 'compare';
   else if (path.includes('/batch')) activeTool = 'batch';
+  else if (path.includes('/scanned-editor')) activeTool = 'scanned-editor';
+  else if (path.includes('/forms')) activeTool = 'forms';
+  else if (path.includes('/repair')) activeTool = 'repair';
+  else if (path.includes('/workflows')) activeTool = 'workflows';
   else if (path.includes('/organize')) activeTool = 'organize';
 
   return (
@@ -60,6 +71,37 @@ export const WorkspacePage: React.FC<WorkspacePageProps> = ({ initialTool = 'org
       {/* Main Content Workspace */}
       <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 pb-20 md:pb-8">
         <div className="mx-auto max-w-7xl h-full flex flex-col">
+          {/* Subtle Session Recovery Banner if previously saved in IndexedDB */}
+          {savedSession && !currentFile && (
+            <div className="mb-6 rounded-2xl border border-brand-200 bg-brand-50/80 p-4 dark:border-brand-900/60 dark:bg-brand-950/40 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs animate-in fade-in slide-in-from-top-2">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-xl bg-brand-600 text-white dark:bg-brand-500 shrink-0">
+                  <Sparkles className="w-5 h-5" />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-slate-900 dark:text-white">
+                    Restore previous session:{' '}
+                    <span className="text-brand-600 dark:text-brand-400 font-bold">
+                      {savedSession.name}
+                    </span>
+                  </p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    {savedSession.pageCount} {savedSession.pageCount === 1 ? 'page' : 'pages'} •{' '}
+                    {formatBytes(savedSession.size)} • Auto-saved from your previous session
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
+                <Button variant="primary" size="sm" onClick={resumeSavedSession}>
+                  Resume Work
+                </Button>
+                <Button variant="ghost" size="sm" onClick={dismissSavedSession}>
+                  Dismiss
+                </Button>
+              </div>
+            </div>
+          )}
+
           {activeTool === 'organize' && <PageOrganizer />}
           {activeTool === 'viewer' && (
             <div className="h-full min-h-[600px] flex flex-col">
@@ -80,6 +122,10 @@ export const WorkspacePage: React.FC<WorkspacePageProps> = ({ initialTool = 'org
           {activeTool === 'diagnostics' && <PdfHealthCheck />}
           {activeTool === 'compare' && <PdfCompare />}
           {activeTool === 'batch' && <BatchWorkspace />}
+          {activeTool === 'scanned-editor' && <ScannedTextEditor />}
+          {activeTool === 'forms' && <FormWorkspace />}
+          {activeTool === 'repair' && <PdfRepairWorkspace />}
+          {activeTool === 'workflows' && <WorkflowsWorkspace />}
         </div>
       </main>
 

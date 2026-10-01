@@ -11,9 +11,13 @@ import {
   PanelLeftClose,
   PanelLeft,
   MoveVertical,
+  Search,
+  X,
+  Loader2,
 } from 'lucide-react';
 import { usePdf } from '../../context/PdfContext';
 import { renderPageToCanvas } from '../../lib/pdf/pdf-engine';
+import { pdfjsLib } from '../../lib/pdf/pdfjs-init';
 import { Button } from '../ui/Button';
 
 export const PdfViewer: React.FC = () => {
@@ -26,6 +30,13 @@ export const PdfViewer: React.FC = () => {
   const [rendering, setRendering] = useState<boolean>(false);
   const [pageError, setPageError] = useState<string | null>(null);
   const [retryCount, setRetryCount] = useState<number>(0);
+
+  // Search state
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isSearching, setIsSearching] = useState(false);
+  const [matchedPages, setMatchedPages] = useState<number[]>([]);
+  const [matchIdx, setMatchIdx] = useState(0);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -124,6 +135,52 @@ export const PdfViewer: React.FC = () => {
 
   const handleRotateView = () => {
     setViewRotation((prev) => (prev + 90) % 360);
+  };
+
+  const handleRunSearch = async () => {
+    if (!currentFile || !searchQuery.trim()) return;
+    setIsSearching(true);
+    try {
+      const pdfDoc = await pdfjsLib.getDocument({ data: currentFile.data }).promise;
+      const foundPages: number[] = [];
+      const q = searchQuery.toLowerCase();
+
+      for (let pNum = 1; pNum <= pdfDoc.numPages; pNum++) {
+        const page = await pdfDoc.getPage(pNum);
+        const textContent = await page.getTextContent();
+        const pageText = textContent.items
+          .map((item: any) => item.str || '')
+          .join(' ')
+          .toLowerCase();
+        if (pageText.includes(q)) {
+          foundPages.push(pNum);
+        }
+      }
+
+      setMatchedPages(foundPages);
+      if (foundPages.length > 0) {
+        setMatchIdx(0);
+        setCurrentPage(foundPages[0]);
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  const handleNextMatch = () => {
+    if (matchedPages.length === 0) return;
+    const next = (matchIdx + 1) % matchedPages.length;
+    setMatchIdx(next);
+    setCurrentPage(matchedPages[next]);
+  };
+
+  const handlePrevMatch = () => {
+    if (matchedPages.length === 0) return;
+    const prev = (matchIdx - 1 + matchedPages.length) % matchedPages.length;
+    setMatchIdx(prev);
+    setCurrentPage(matchedPages[prev]);
   };
 
   return (
@@ -252,6 +309,16 @@ export const PdfViewer: React.FC = () => {
           </Button>
 
           <Button
+            variant={searchOpen ? 'primary' : 'ghost'}
+            size="icon"
+            onClick={() => setSearchOpen(!searchOpen)}
+            title="Search in PDF"
+            className="h-8 w-8"
+          >
+            <Search className="h-4 w-4" />
+          </Button>
+
+          <Button
             variant="ghost"
             size="icon"
             onClick={toggleFullscreen}
@@ -262,6 +329,72 @@ export const PdfViewer: React.FC = () => {
           </Button>
         </div>
       </div>
+
+      {/* In-Document Search Bar */}
+      {searchOpen && (
+        <div className="flex items-center justify-between gap-3 px-4 py-2 bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 text-xs animate-in slide-in-from-top-1">
+          <div className="flex items-center gap-2 flex-1 max-w-md">
+            <Search className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+            <input
+              type="text"
+              placeholder="Find in document..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleRunSearch()}
+              className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-brand-500"
+            />
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handleRunSearch}
+              disabled={isSearching}
+              className="h-7 text-xs px-2.5 shrink-0"
+            >
+              {isSearching ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Find'}
+            </Button>
+          </div>
+
+          <div className="flex items-center gap-2">
+            {matchedPages.length > 0 ? (
+              <span className="text-[11px] font-mono text-brand-600 dark:text-brand-400 font-medium">
+                Page {matchedPages[matchIdx]} ({matchIdx + 1} of {matchedPages.length} matches)
+              </span>
+            ) : (
+              searchQuery && !isSearching && (
+                <span className="text-[11px] text-slate-400">No matches</span>
+              )
+            )}
+
+            <div className="flex items-center gap-1">
+              <button
+                onClick={handlePrevMatch}
+                disabled={matchedPages.length === 0}
+                className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-800 disabled:opacity-30"
+              >
+                <ChevronLeft className="w-3.5 h-3.5" />
+              </button>
+              <button
+                onClick={handleNextMatch}
+                disabled={matchedPages.length === 0}
+                className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-800 disabled:opacity-30"
+              >
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            <button
+              onClick={() => {
+                setSearchOpen(false);
+                setSearchQuery('');
+                setMatchedPages([]);
+              }}
+              className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Main Viewer Body */}
       <div className="flex-1 flex overflow-hidden relative">
