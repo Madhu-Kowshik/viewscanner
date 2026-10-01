@@ -37,6 +37,8 @@ import {
   convertTextToPdf as engineConvertText,
   extractAllTextFromPdf as engineExtractText,
   analyzePdfHealth as engineAnalyzeHealth,
+  unlockPasswordProtectedPdf,
+  extractPageTextItems,
 } from '../lib/pdf/pdf-engine';
 import { createSamplePdf } from '../lib/pdf/sample-pdf';
 import { addRecentFile } from '../lib/recent-files';
@@ -46,6 +48,7 @@ import {
   getSavedSessionDocument,
   clearSavedSessionDocument,
 } from '../lib/storage/indexed-db';
+import { PasswordModal } from '../components/modals/PasswordModal';
 
 interface DocumentSnapshot {
   file: PdfFileInfo;
@@ -60,6 +63,14 @@ interface PdfContextType {
   processing: ProcessingState;
   result: ProcessedResult | null;
   healthReport: PdfHealthReport | null;
+
+  // Document Detection & Security
+  documentType: 'editable' | 'scanned' | 'encrypted' | null;
+  passwordModalOpen: boolean;
+  pendingEncryptedFileName: string | null;
+  passwordError: string | null;
+  submitPdfPassword: (password: string) => Promise<boolean>;
+  closePasswordModal: () => void;
 
   // Autosave / Session Recovery
   savedSession: { name: string; size: number; pageCount: number; timestamp: number } | null;
@@ -145,6 +156,21 @@ export const PdfProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const [undoStack, setUndoStack] = useState<DocumentSnapshot[]>([]);
   const [redoStack, setRedoStack] = useState<DocumentSnapshot[]>([]);
+
+  // Document Detection & Security
+  const [documentType, setDocumentType] = useState<'editable' | 'scanned' | 'encrypted' | null>(null);
+  const [passwordModalOpen, setPasswordModalOpen] = useState(false);
+  const [pendingEncryptedFile, setPendingEncryptedFile] = useState<{
+    file: File | { data: ArrayBuffer; name: string };
+    buffer: ArrayBuffer;
+  } | null>(null);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+
+  const closePasswordModal = useCallback(() => {
+    setPasswordModalOpen(false);
+    setPendingEncryptedFile(null);
+    setPasswordError(null);
+  }, []);
 
   // Autosaved session recovery state
   const [savedSession, setSavedSession] = useState<{
@@ -266,6 +292,16 @@ export const PdfProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
         const validation = await validatePdf(buffer);
         if (!validation.valid) {
+          if (validation.isEncrypted) {
+            setPendingEncryptedFile({ file: fileInput, buffer });
+            setPasswordError(null);
+            setPasswordModalOpen(true);
+            setProcessing({
+              status: 'idle',
+              message: 'Password-protected PDF — enter password to continue',
+            });
+            return false;
+          }
           setProcessing({
             status: 'error',
             message: validation.error || "OmniPDF couldn't read this PDF file.",
@@ -319,6 +355,23 @@ export const PdfProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
         setProcessing({ status: 'idle', message: '' });
 
+        // Document Type Detection: Inspect vector text layer
+        try {
+          const sampleItems = await extractPageTextItems(buffer, 1);
+          const hasText = sampleItems && sampleItems.length > 0;
+          const detected: 'editable' | 'scanned' = hasText ? 'editable' : 'scanned';
+          setDocumentType(detected);
+          setProcessing({
+            status: 'idle',
+            message:
+              detected === 'editable'
+                ? 'Editable PDF detected'
+                : 'Scanned PDF detected — OCR editing available',
+          });
+        } catch {
+          setDocumentType('editable');
+        }
+
         // Run health check in background
         setTimeout(async () => {
           try {
@@ -371,6 +424,35 @@ export const PdfProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     clearSavedSessionDocument();
   }, []);
 
+  const submitPdfPassword = useCallback(
+    async (password: string): Promise<boolean> => {
+      if (!pendingEncryptedFile) return false;
+      try {
+        const res = await unlockPasswordProtectedPdf(pendingEncryptedFile.buffer, password);
+        if (res.success && res.unlockedData) {
+          const unlockedBuf = res.unlockedData;
+          const originalName =
+            pendingEncryptedFile.file instanceof File
+              ? pendingEncryptedFile.file.name
+              : pendingEncryptedFile.file.name;
+          setPasswordModalOpen(false);
+          setPasswordError(null);
+          setPendingEncryptedFile(null);
+          await loadFile({ data: unlockedBuf, name: originalName });
+          return true;
+        } else {
+          setPasswordError(res.error || 'Incorrect password.');
+          return false;
+        }
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : 'Decryption failed';
+        setPasswordError(msg);
+        return false;
+      }
+    },
+    [pendingEncryptedFile, loadFile]
+  );
+
   const loadSampleDoc = useCallback(async () => {
     try {
       setProcessing({ status: 'reading', message: 'Generating sample PDF document...' });
@@ -391,6 +473,7 @@ export const PdfProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setUndoStack([]);
     setRedoStack([]);
     setHealthReport(null);
+    setDocumentType(null);
     clearResult();
     setProcessing({ status: 'idle', message: '' });
     clearSavedSessionDocument();
@@ -1493,9 +1576,32 @@ export const PdfProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         exportExtractedPages,
         clearResult,
         setProcessingError,
+        documentType,
+        passwordModalOpen,
+        pendingEncryptedFileName: pendingEncryptedFile
+          ? pendingEncryptedFile.file instanceof File
+            ? pendingEncryptedFile.file.name
+            : pendingEncryptedFile.file.name
+          : null,
+        passwordError,
+        submitPdfPassword,
+        closePasswordModal,
       }}
     >
       {children}
+      <PasswordModal
+        isOpen={passwordModalOpen}
+        onClose={closePasswordModal}
+        fileName={
+          pendingEncryptedFile
+            ? pendingEncryptedFile.file instanceof File
+              ? pendingEncryptedFile.file.name
+              : pendingEncryptedFile.file.name
+            : undefined
+        }
+        onSubmit={submitPdfPassword}
+        error={passwordError}
+      />
     </PdfContext.Provider>
   );
 };

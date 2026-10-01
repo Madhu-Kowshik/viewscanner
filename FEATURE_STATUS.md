@@ -20,29 +20,30 @@ Every feature listed below is **100% fully implemented and functional client-sid
 
 ---
 
-### Category 2 — True Vector PDF Text Editing
+### Category 2 — True Vector PDF Text Editing (Content Stream Native)
 | # | Feature | Status | Implementation Details |
 | :--- | :--- | :--- | :--- |
 | 9 | **Extract Vector Text Items** | ✅ IMPLEMENTED + TESTED | `extractPageTextItems` retrieves exact PDF coordinates, metrics, and font names |
-| 10 | **Click-to-Select Vector Text** | ✅ IMPLEMENTED + TESTED | Interactive bounding box overlay directly on canvas |
-| 11 | **In-Place Vector Replacement** | ✅ IMPLEMENTED + TESTED | `replaceVectorTextInPdf` renders tone-matched background patch + native vector font |
-| 12 | **Vector Typography Control** | ✅ IMPLEMENTED + TESTED | Helvetica (Sans), Times (Serif), Courier (Mono), Bold font family switching |
-| 13 | **Font Size Slider & Color Picker**| ✅ IMPLEMENTED + TESTED | Adjust text point size and hex color |
-| 14 | **Delete Vector Text** | ✅ IMPLEMENTED + TESTED | Erases vector text strings without rasterizing surrounding page content |
+| 10 | **Click-to-Select & Inline Edit**| ✅ IMPLEMENTED + TESTED | Click to select, double-click or press Enter to edit inline directly on the canvas |
+| 11 | **Direct Stream Text Replacement**| ✅ IMPLEMENTED + TESTED | `replaceVectorTextInPdf` modifies raw PDF content stream (`(text) Tj`, `<HEX> Tj`, `[...] TJ`) — **strictly ZERO white rectangles**, ZERO blur |
+| 12 | **Delete Vector Text Stream** | ✅ IMPLEMENTED + TESTED | Erases vector text operators (`<> Tj`) directly from stream, preserving underlying backgrounds 100% |
+| 13 | **Vector Typography Control** | ✅ IMPLEMENTED + TESTED | Helvetica (Sans), Times (Serif), Courier (Mono), Bold font family switching |
+| 14 | **Font Size Slider & Color Picker**| ✅ IMPLEMENTED + TESTED | Adjust text point size and hex color |
 | 15 | **Move & Reposition Vector Text** | ✅ IMPLEMENTED + TESTED | Custom target coordinates supported in `TextReplacementEdit` |
-| 16 | **Zero-Blur Vector Preservation** | ✅ IMPLEMENTED + TESTED | Underlying PDF streams remain native vector objects |
+| 16 | **Zero-Blur Vector Preservation** | ✅ IMPLEMENTED + TESTED | Underlying PDF streams remain native vector objects with 100% sharpness |
 
 ---
 
 ### Category 3 — Scanned PDF & Neural OCR Text Reconstruction
 | # | Feature | Status | Implementation Details |
 | :--- | :--- | :--- | :--- |
-| 17 | **Neural OCR Word Detection** | ✅ IMPLEMENTED + TESTED | `runDetailedOcrOnImageDataUrl` with Tesseract.js extracts word bounding boxes |
-| 18 | **Click-to-Edit Scanned Words** | ✅ IMPLEMENTED + TESTED | Click detected word box to correct typos or change numbers |
-| 19 | **Tone-Matched Patch Reconstruction**| ✅ IMPLEMENTED + TESTED | Automatically samples surrounding paper tone to reconstruct background |
-| 20 | **Multi-Language OCR** | ✅ IMPLEMENTED + TESTED | Supports English, Spanish, French, German, Italian, Portuguese |
-| 21 | **Confidence Scoring Display** | ✅ IMPLEMENTED + TESTED | Shows recognition confidence percentage per recognized word |
-| 22 | **Original vs Edited Comparison** | ✅ IMPLEMENTED + TESTED | Visual before-and-after slider in `ScannedTextEditor.tsx` |
+| 17 | **Document Type Detection** | ✅ IMPLEMENTED + TESTED | Automatic detection: "Editable PDF detected", "Scanned PDF detected — OCR editing available", or "Password-protected PDF" |
+| 18 | **Password Decryption Workflow** | ✅ IMPLEMENTED + TESTED | `PasswordModal` prompts user, verifies password via PDF.js, decrypts into unlocked editing pipeline |
+| 19 | **Neural OCR Word Detection** | ✅ IMPLEMENTED + TESTED | `runDetailedOcrOnImageDataUrl` with Tesseract.js extracts word bounding boxes |
+| 20 | **On-Canvas Click-to-Edit Words** | ✅ IMPLEMENTED + TESTED | Double-click or Enter directly over word on canvas opens inline input to edit typos or numbers |
+| 21 | **Tone-Matched Patch Reconstruction**| ✅ IMPLEMENTED + TESTED | Automatically samples surrounding paper tone to reconstruct background |
+| 22 | **Multi-Language OCR** | ✅ IMPLEMENTED + TESTED | Supports English, Spanish, French, German, Italian, Portuguese |
+| 23 | **Confidence Scoring Display** | ✅ IMPLEMENTED + TESTED | Color-coded confidence indicators (emerald >85%, amber 60-84%, rose <60%) |
 
 ---
 

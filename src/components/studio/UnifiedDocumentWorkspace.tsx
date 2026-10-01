@@ -85,6 +85,7 @@ export const UnifiedDocumentWorkspace: React.FC<UnifiedDocumentWorkspaceProps> =
     currentFile,
     pages,
     healthReport,
+    documentType,
     updateActiveDocument,
     rotatePage,
     deletePage,
@@ -140,6 +141,8 @@ export const UnifiedDocumentWorkspace: React.FC<UnifiedDocumentWorkspaceProps> =
   const [vectorFontFamily, setVectorFontFamily] = useState<'sans' | 'serif' | 'mono' | 'bold'>('sans');
   const [vectorEdits, setVectorEdits] = useState<TextReplacementEdit[]>([]);
   const [isSavingVector, setIsSavingVector] = useState(false);
+  const [inlineEditingVectorId, setInlineEditingVectorId] = useState<string | null>(null);
+  const [inlineVectorValue, setInlineVectorValue] = useState<string>('');
 
   // --- SCANNED OCR EDIT STATE ---
   const [ocrLang, setOcrLang] = useState('eng');
@@ -147,6 +150,8 @@ export const UnifiedDocumentWorkspace: React.FC<UnifiedDocumentWorkspaceProps> =
   const [ocrWords, setOcrWords] = useState<OcrWordItem[]>([]);
   const [selectedOcrWord, setSelectedOcrWord] = useState<OcrWordItem | null>(null);
   const [ocrReplacementText, setOcrReplacementText] = useState('');
+  const [inlineEditingOcrId, setInlineEditingOcrId] = useState<string | null>(null);
+  const [inlineOcrValue, setInlineOcrValue] = useState<string>('');
   const [scannedEdits, setScannedEdits] = useState<
     { id: string; originalText: string; newText: string; bbox: { x0: number; y0: number; x1: number; y1: number } }[]
   >([]);
@@ -269,8 +274,41 @@ export const UnifiedDocumentWorkspace: React.FC<UnifiedDocumentWorkspaceProps> =
         setIsSearchOpen(false);
         setIsExportOpen(false);
         setIsShortcutsOpen(false);
+        setInlineEditingVectorId(null);
+        setInlineEditingOcrId(null);
         setSelectedVectorItem(null);
         setSelectedOcrWord(null);
+      } else if (
+        (e.key === 'Delete' || e.key === 'Backspace') &&
+        !['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName || '')
+      ) {
+        if (mode === 'edit-text' && selectedVectorItem) {
+          e.preventDefault();
+          handleDeleteVectorItem();
+        } else if (mode === 'scanned-ocr' && selectedOcrWord) {
+          e.preventDefault();
+          handleDeleteOcrWord();
+        }
+      } else if (
+        e.key === 'Enter' &&
+        !['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName || '')
+      ) {
+        if (mode === 'edit-text' && selectedVectorItem) {
+          e.preventDefault();
+          setInlineEditingVectorId(selectedVectorItem.id);
+          const existing = vectorEdits.find(
+            (ed) =>
+              ed.pageNumber === currentPageIndex + 1 &&
+              ed.pdfX === selectedVectorItem.pdfX &&
+              ed.pdfY === selectedVectorItem.pdfY
+          );
+          setInlineVectorValue(existing ? existing.newText : selectedVectorItem.text);
+        } else if (mode === 'scanned-ocr' && selectedOcrWord) {
+          e.preventDefault();
+          setInlineEditingOcrId(selectedOcrWord.id);
+          const existing = scannedEdits.find((ed) => ed.id === selectedOcrWord.id);
+          setInlineOcrValue(existing ? existing.newText : selectedOcrWord.text);
+        }
       } else if (e.key === '?' && !e.ctrlKey && !e.metaKey && document.activeElement?.tagName !== 'INPUT') {
         setIsShortcutsOpen((prev) => !prev);
       }
@@ -278,7 +316,18 @@ export const UnifiedDocumentWorkspace: React.FC<UnifiedDocumentWorkspaceProps> =
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [canUndo, canRedo, undo, redo]);
+  }, [
+    canUndo,
+    canRedo,
+    undo,
+    redo,
+    mode,
+    selectedVectorItem,
+    selectedOcrWord,
+    vectorEdits,
+    scannedEdits,
+    currentPageIndex,
+  ]);
 
   // Execute in-document text search
   const handlePerformSearch = async () => {
@@ -341,6 +390,7 @@ export const UnifiedDocumentWorkspace: React.FC<UnifiedDocumentWorkspaceProps> =
     if (!selectedVectorItem) return;
     const edit: TextReplacementEdit = {
       pageNumber: currentPageIndex + 1,
+      originalText: selectedVectorItem.text,
       pdfX: selectedVectorItem.pdfX,
       pdfY: selectedVectorItem.pdfY,
       pdfWidth: selectedVectorItem.pdfWidth,
@@ -370,6 +420,7 @@ export const UnifiedDocumentWorkspace: React.FC<UnifiedDocumentWorkspaceProps> =
     if (!selectedVectorItem) return;
     const delEdit: TextReplacementEdit = {
       pageNumber: currentPageIndex + 1,
+      originalText: selectedVectorItem.text,
       pdfX: selectedVectorItem.pdfX,
       pdfY: selectedVectorItem.pdfY,
       pdfWidth: selectedVectorItem.pdfWidth,
@@ -389,6 +440,34 @@ export const UnifiedDocumentWorkspace: React.FC<UnifiedDocumentWorkspaceProps> =
       delEdit,
     ]);
     setSelectedVectorItem(null);
+  };
+
+  const commitInlineVector = (item: PdfTextItemInfo, newText: string) => {
+    setInlineEditingVectorId(null);
+    const isDeleted = !newText.trim();
+    const edit: TextReplacementEdit = {
+      pageNumber: currentPageIndex + 1,
+      originalText: item.text,
+      pdfX: item.pdfX,
+      pdfY: item.pdfY,
+      pdfWidth: item.pdfWidth,
+      pdfHeight: item.pdfHeight,
+      newText: newText,
+      fontSize: item.fontSize,
+      fontFamily: 'sans',
+      isDeleted,
+    };
+    setVectorEdits((prev) => [
+      ...prev.filter(
+        (e) =>
+          !(
+            e.pageNumber === currentPageIndex + 1 &&
+            e.pdfX === item.pdfX &&
+            e.pdfY === item.pdfY
+          )
+      ),
+      edit,
+    ]);
   };
 
   const handleSaveAllVectorEdits = async () => {
@@ -432,6 +511,33 @@ export const UnifiedDocumentWorkspace: React.FC<UnifiedDocumentWorkspaceProps> =
     setSelectedOcrWord(word);
     const existing = scannedEdits.find((e) => e.id === word.id);
     setOcrReplacementText(existing ? existing.newText : word.text);
+  };
+
+  const commitInlineOcr = (w: OcrWordItem, newText: string) => {
+    setInlineEditingOcrId(null);
+    setScannedEdits((prev) => [
+      ...prev.filter((e) => e.id !== w.id),
+      {
+        id: w.id,
+        originalText: w.text,
+        newText: newText,
+        bbox: w.bbox,
+      },
+    ]);
+  };
+
+  const handleDeleteOcrWord = () => {
+    if (!selectedOcrWord) return;
+    setScannedEdits((prev) => [
+      ...prev.filter((e) => e.id !== selectedOcrWord.id),
+      {
+        id: selectedOcrWord.id,
+        originalText: selectedOcrWord.text,
+        newText: '',
+        bbox: selectedOcrWord.bbox,
+      },
+    ]);
+    setSelectedOcrWord(null);
   };
 
   const handleApplyScannedWordEdit = () => {
@@ -667,13 +773,13 @@ export const UnifiedDocumentWorkspace: React.FC<UnifiedDocumentWorkspaceProps> =
             <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 shrink-0">
               {formatBytes(currentFile.size)}
             </span>
-            {healthReport?.isLikelyScanned ? (
-              <span className="hidden md:inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-bold bg-amber-50 dark:bg-amber-950 text-amber-600 dark:text-amber-400 shrink-0">
-                <ScanText className="w-3 h-3" /> Scanned
+            {documentType === 'scanned' || healthReport?.isLikelyScanned ? (
+              <span className="hidden md:inline-flex items-center gap-1.5 text-[10px] px-2.5 py-0.5 rounded-full font-bold bg-amber-50 dark:bg-amber-950/70 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 shrink-0">
+                <ScanText className="w-3 h-3 text-amber-500" /> Scanned PDF detected — OCR editing available
               </span>
             ) : (
-              <span className="hidden md:inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-bold bg-emerald-50 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400 shrink-0">
-                <Type className="w-3 h-3" /> Vector Native
+              <span className="hidden md:inline-flex items-center gap-1.5 text-[10px] px-2.5 py-0.5 rounded-full font-bold bg-emerald-50 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 shrink-0">
+                <Type className="w-3 h-3 text-emerald-500" /> Editable PDF detected
               </span>
             )}
           </div>
@@ -685,7 +791,7 @@ export const UnifiedDocumentWorkspace: React.FC<UnifiedDocumentWorkspaceProps> =
             { id: 'view', label: 'View', icon: Eye },
             { id: 'edit-text', label: 'Edit Text', icon: Type },
             { id: 'scanned-ocr', label: 'OCR Scanned', icon: ScanText },
-            { id: 'annotate', label: 'Annotate', icon: PenTool },
+            { id: 'annotate', label: 'Add Text', icon: PenTool },
             { id: 'organize', label: 'Organize', icon: LayoutGrid },
             { id: 'sign', label: 'Sign', icon: FileSignature },
             { id: 'forms', label: 'Forms', icon: FormInput },
@@ -704,6 +810,15 @@ export const UnifiedDocumentWorkspace: React.FC<UnifiedDocumentWorkspaceProps> =
                     ? 'bg-white dark:bg-slate-900 text-brand-600 dark:text-brand-400 shadow-2xs font-bold'
                     : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
                 )}
+                title={
+                  item.id === 'edit-text'
+                    ? 'Edit existing vector text in PDF stream'
+                    : item.id === 'scanned-ocr'
+                    ? 'Click and edit words directly on scanned pages'
+                    : item.id === 'annotate'
+                    ? 'Add new text boxes, shapes, and annotations'
+                    : item.label
+                }
               >
                 <Icon className="w-3.5 h-3.5" />
                 <span>{item.label}</span>
@@ -948,12 +1063,52 @@ export const UnifiedDocumentWorkspace: React.FC<UnifiedDocumentWorkspaceProps> =
                   (e) => e.pageNumber === currentPageIndex + 1 && e.pdfX === item.pdfX && e.pdfY === item.pdfY
                 );
 
+                if (inlineEditingVectorId === item.id) {
+                  return (
+                    <input
+                      key={`input_${item.id}`}
+                      type="text"
+                      value={inlineVectorValue}
+                      autoFocus
+                      onClick={(e) => e.stopPropagation()}
+                      onChange={(e) => setInlineVectorValue(e.target.value)}
+                      onKeyDown={(e) => {
+                        e.stopPropagation();
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          commitInlineVector(item, inlineVectorValue);
+                        } else if (e.key === 'Escape') {
+                          setInlineEditingVectorId(null);
+                        }
+                      }}
+                      onBlur={() => commitInlineVector(item, inlineVectorValue)}
+                      className="absolute z-30 bg-white dark:bg-slate-900 border-2 border-brand-500 rounded px-1 text-slate-900 dark:text-white shadow-xl outline-none font-sans"
+                      style={{
+                        left: `${item.x * 100}%`,
+                        top: `${item.y * 100}%`,
+                        minWidth: `${Math.max(item.width * 100, 15)}%`,
+                        height: `${Math.max(item.height * 100, 3.5)}%`,
+                        fontSize: `${Math.max(item.fontSize || 13, 13)}px`,
+                      }}
+                    />
+                  );
+                }
+
                 return (
                   <div
                     key={item.id}
                     onClick={(e) => {
                       e.stopPropagation();
                       handleSelectVectorText(item);
+                    }}
+                    onDoubleClick={(e) => {
+                      e.stopPropagation();
+                      handleSelectVectorText(item);
+                      setInlineEditingVectorId(item.id);
+                      const existing = vectorEdits.find(
+                        (ed) => ed.pageNumber === currentPageIndex + 1 && ed.pdfX === item.pdfX && ed.pdfY === item.pdfY
+                      );
+                      setInlineVectorValue(existing ? existing.newText : item.text);
                     }}
                     className={cn(
                       'absolute cursor-pointer transition-all border rounded-xs px-0.5',
@@ -969,7 +1124,7 @@ export const UnifiedDocumentWorkspace: React.FC<UnifiedDocumentWorkspaceProps> =
                       width: `${item.width * 100}%`,
                       height: `${item.height * 100}%`,
                     }}
-                    title={`Click to edit: "${item.text}"`}
+                    title={`Click to select, double-click or Enter to edit: "${hasPendingEdit ? hasPendingEdit.newText : item.text}"`}
                   >
                     {hasPendingEdit && (
                       <span className="absolute -top-3 -right-2 w-2 h-2 rounded-full bg-emerald-500 ring-1 ring-white" />
@@ -983,9 +1138,37 @@ export const UnifiedDocumentWorkspace: React.FC<UnifiedDocumentWorkspaceProps> =
               ocrWords.map((w) => {
                 const isSelected = selectedOcrWord?.id === w.id;
                 const hasEdit = scannedEdits.find((e) => e.id === w.id);
-                // Normalized position relative to canvas
-                const cW = canvasRef.current?.style.width ? parseInt(canvasRef.current.style.width) : 600;
-                const cH = canvasRef.current?.style.height ? parseInt(canvasRef.current.style.height) : 800;
+
+                if (inlineEditingOcrId === w.id) {
+                  return (
+                    <input
+                      key={`input_${w.id}`}
+                      type="text"
+                      value={inlineOcrValue}
+                      autoFocus
+                      onClick={(e) => e.stopPropagation()}
+                      onChange={(e) => setInlineOcrValue(e.target.value)}
+                      onKeyDown={(e) => {
+                        e.stopPropagation();
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          commitInlineOcr(w, inlineOcrValue);
+                        } else if (e.key === 'Escape') {
+                          setInlineEditingOcrId(null);
+                        }
+                      }}
+                      onBlur={() => commitInlineOcr(w, inlineOcrValue)}
+                      className="absolute z-30 bg-white dark:bg-slate-900 border-2 border-amber-500 rounded px-1 text-slate-900 dark:text-white shadow-xl outline-none font-sans"
+                      style={{
+                        left: `${(w.bbox.x0 / (canvasRef.current?.width || 1)) * 100}%`,
+                        top: `${(w.bbox.y0 / (canvasRef.current?.height || 1)) * 100}%`,
+                        minWidth: `${Math.max(((w.bbox.x1 - w.bbox.x0) / (canvasRef.current?.width || 1)) * 100, 10)}%`,
+                        height: `${Math.max(((w.bbox.y1 - w.bbox.y0) / (canvasRef.current?.height || 1)) * 100, 3.5)}%`,
+                        fontSize: `${Math.max(12, Math.round(w.bbox.y1 - w.bbox.y0))}px`,
+                      }}
+                    />
+                  );
+                }
 
                 return (
                   <div
@@ -994,13 +1177,24 @@ export const UnifiedDocumentWorkspace: React.FC<UnifiedDocumentWorkspaceProps> =
                       e.stopPropagation();
                       handleSelectOcrWord(w);
                     }}
+                    onDoubleClick={(e) => {
+                      e.stopPropagation();
+                      handleSelectOcrWord(w);
+                      setInlineEditingOcrId(w.id);
+                      const existing = scannedEdits.find((ed) => ed.id === w.id);
+                      setInlineOcrValue(existing ? existing.newText : w.text);
+                    }}
                     className={cn(
                       'absolute cursor-pointer border rounded-2xs transition-all',
                       isSelected
                         ? 'bg-amber-500/30 border-amber-500 ring-2 ring-amber-500/40 z-20'
                         : hasEdit
                         ? 'bg-purple-500/30 border-purple-500 z-10'
-                        : 'border-transparent hover:border-amber-400/50 hover:bg-amber-50/20'
+                        : w.confidence >= 85
+                        ? 'border-transparent hover:border-emerald-400/80 hover:bg-emerald-50/20'
+                        : w.confidence >= 60
+                        ? 'border-transparent hover:border-amber-400/80 hover:bg-amber-50/20'
+                        : 'border-transparent hover:border-rose-400/80 hover:bg-rose-50/20'
                     )}
                     style={{
                       left: `${(w.bbox.x0 / (canvasRef.current?.width || 1)) * 100}%`,
@@ -1008,7 +1202,7 @@ export const UnifiedDocumentWorkspace: React.FC<UnifiedDocumentWorkspaceProps> =
                       width: `${((w.bbox.x1 - w.bbox.x0) / (canvasRef.current?.width || 1)) * 100}%`,
                       height: `${((w.bbox.y1 - w.bbox.y0) / (canvasRef.current?.height || 1)) * 100}%`,
                     }}
-                    title={`Recognized word: "${w.text}" (${Math.round(w.confidence)}% confidence)`}
+                    title={`Recognized word: "${hasEdit ? hasEdit.newText : w.text}" (${Math.round(w.confidence)}% confidence) - Double-click to edit directly`}
                   />
                 );
               })}

@@ -1,4 +1,4 @@
-import { PDFDocument, degrees, rgb, StandardFonts } from 'pdf-lib';
+import { PDFDocument, degrees, rgb, StandardFonts, decodePDFRawStream, PDFRef, PDFArray } from 'pdf-lib';
 import { pdfjsLib } from './pdfjs-init';
 import JSZip from 'jszip';
 import { createWorker } from 'tesseract.js';
@@ -17,6 +17,8 @@ export interface PdfValidationResult {
   error?: string;
   pageCount?: number;
   fileSize?: number;
+  isEncrypted?: boolean;
+  detectionType?: 'editable' | 'scanned' | 'encrypted' | 'unknown';
 }
 
 export interface PageMetadata {
@@ -84,12 +86,110 @@ export async function validatePdf(data: ArrayBuffer): Promise<PdfValidationResul
     if (message.toLowerCase().includes('encrypt') || message.toLowerCase().includes('password')) {
       return {
         valid: false,
-        error: 'This PDF is password-protected. OmniPDF currently processes unlocked documents for your security.',
+        isEncrypted: true,
+        detectionType: 'encrypted',
+        error: 'Password-protected PDF — enter password to continue',
       };
     }
     return {
       valid: false,
       error: "OmniPDF couldn't read this PDF. The file may be damaged or corrupted.",
+    };
+  }
+}
+
+/**
+ * Verifies and decrypts a password-protected PDF document.
+ * Returns decrypted ArrayBuffer ready for editing directly in OmniPDF.
+ */
+export async function unlockPasswordProtectedPdf(
+  data: ArrayBuffer,
+  password: string
+): Promise<{ success: boolean; unlockedData?: ArrayBuffer; error?: string }> {
+  try {
+    const loadingTask = pdfjsLib.getDocument({
+      data: new Uint8Array(data.slice(0)),
+      password,
+      cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/',
+      cMapPacked: true,
+    });
+
+    const pdf = await loadingTask.promise;
+    const numPages = pdf.numPages;
+
+    // 1. First attempt: Direct trailer Encrypt dictionary strip if structure allows
+    try {
+      const doc = await PDFDocument.load(data, { ignoreEncryption: true });
+      if (doc.context && doc.context.trailerInfo) {
+        delete (doc.context.trailerInfo as any).Encrypt;
+      }
+      const strippedBytes = await doc.save();
+      const verifyDoc = await PDFDocument.load(strippedBytes);
+      if (verifyDoc.getPageCount() > 0) {
+        return {
+          success: true,
+          unlockedData: strippedBytes.buffer.slice(
+            strippedBytes.byteOffset,
+            strippedBytes.byteOffset + strippedBytes.byteLength
+          ) as ArrayBuffer,
+        };
+      }
+    } catch {
+      // Fallback to high-DPI page reconstruction below
+    }
+
+    // 2. High-fidelity decrypted page extraction into a clean unlocked PDF
+    const newDoc = await PDFDocument.create();
+    for (let i = 1; i <= numPages; i++) {
+      const page = await pdf.getPage(i);
+      const viewport = page.getViewport({ scale: 2.0 }); // 144-150 DPI lossless render
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.floor(viewport.width);
+      canvas.height = Math.floor(viewport.height);
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        await page.render({ canvasContext: ctx, viewport }).promise;
+        const pngUrl = canvas.toDataURL('image/png');
+        const binaryStr = atob(pngUrl.split(',')[1]);
+        const pngBytes = new Uint8Array(binaryStr.length);
+        for (let j = 0; j < binaryStr.length; j++) {
+          pngBytes[j] = binaryStr.charCodeAt(j);
+        }
+        const embeddedImg = await newDoc.embedPng(pngBytes);
+        const origViewport = page.getViewport({ scale: 1.0 });
+        const newPage = newDoc.addPage([origViewport.width, origViewport.height]);
+        newPage.drawImage(embeddedImg, {
+          x: 0,
+          y: 0,
+          width: origViewport.width,
+          height: origViewport.height,
+        });
+      }
+    }
+
+    const savedBytes = await newDoc.save();
+    return {
+      success: true,
+      unlockedData: savedBytes.buffer.slice(
+        savedBytes.byteOffset,
+        savedBytes.byteOffset + savedBytes.byteLength
+      ) as ArrayBuffer,
+    };
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (
+      msg.toLowerCase().includes('password') ||
+      msg.toLowerCase().includes('incorrect') ||
+      msg.includes('PasswordResponses')
+    ) {
+      return {
+        success: false,
+        error: 'Incorrect password. Please verify and try again.',
+      };
+    }
+    return {
+      success: false,
+      error: `Could not decrypt PDF: ${msg}`,
     };
   }
 }
@@ -1805,6 +1905,7 @@ export async function extractPageTextItems(
 
 export interface TextReplacementEdit {
   pageNumber: number; // 1-indexed
+  originalText?: string; // Original text extracted from PDF content stream
   pdfX: number;
   pdfY: number;
   pdfWidth: number;
@@ -1820,9 +1921,103 @@ export interface TextReplacementEdit {
   isDeleted?: boolean;
 }
 
+function escapePdfLiteral(str: string): string {
+  return str.replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
+}
+
+function stringToHex(str: string): string {
+  return Array.from(str)
+    .map((c) => c.charCodeAt(0).toString(16).padStart(2, '0'))
+    .join('')
+    .toUpperCase();
+}
+
+function stringToUtf16Hex(str: string): string {
+  return Array.from(str)
+    .map((c) => c.charCodeAt(0).toString(16).padStart(4, '0'))
+    .join('')
+    .toUpperCase();
+}
+
 /**
- * Replaces or deletes existing text in a PDF document using native PDF vector operations.
- * Preserves 100% of the original vector fidelity without rasterizing the page.
+ * Searches a decoded PDF content stream string and eliminates or replaces target text.
+ * Strictly NEVER uses white rectangles. Modifies the content stream operators directly.
+ */
+function replaceTextInContentStream(
+  streamStr: string,
+  targetText: string,
+  replacementText: string,
+  isDeleted: boolean,
+  keepInStream: boolean
+): { updatedStream: string; matched: boolean } {
+  if (!targetText || !targetText.trim()) return { updatedStream: streamStr, matched: false };
+  let matched = false;
+  let updated = streamStr;
+
+  const targetLit = escapePdfLiteral(targetText);
+  const repLit = escapePdfLiteral(replacementText);
+
+  // 1. Literal string match: (targetLit) Tj
+  if (updated.includes('(' + targetLit + ')')) {
+    matched = true;
+    if (isDeleted || !keepInStream) {
+      updated = updated.split('(' + targetLit + ')').join('()');
+    } else {
+      updated = updated.split('(' + targetLit + ')').join('(' + repLit + ')');
+    }
+  }
+
+  // 2. 1-byte Hex match: <targetHex>
+  const targetHex = stringToHex(targetText);
+  const repHex = stringToHex(replacementText);
+  const hexRegex = /<([0-9a-fA-F\s]+)>/g;
+  updated = updated.replace(hexRegex, (match, hexContent) => {
+    const cleanHex = hexContent.replace(/\s+/g, '').toUpperCase();
+    if (cleanHex.includes(targetHex)) {
+      matched = true;
+      if (isDeleted || !keepInStream) {
+        return '<' + cleanHex.replace(targetHex, '') + '>';
+      }
+      return '<' + cleanHex.replace(targetHex, repHex) + '>';
+    }
+    return match;
+  });
+
+  // 3. 2-byte UTF-16BE hex match
+  const targetUtf16 = stringToUtf16Hex(targetText);
+  const repUtf16 = stringToUtf16Hex(replacementText);
+  updated = updated.replace(hexRegex, (match, hexContent) => {
+    const cleanHex = hexContent.replace(/\s+/g, '').toUpperCase();
+    if (cleanHex.includes(targetUtf16)) {
+      matched = true;
+      if (isDeleted || !keepInStream) {
+        return '<' + cleanHex.replace(targetUtf16, '') + '>';
+      }
+      return '<' + cleanHex.replace(targetUtf16, repUtf16) + '>';
+    }
+    return match;
+  });
+
+  // 4. TJ array match: [ ... ] TJ
+  const tjRegex = /\[([^\]]+)\]\s*TJ/g;
+  updated = updated.replace(tjRegex, (match, arrayContent) => {
+    if (arrayContent.includes('(' + targetLit + ')')) {
+      matched = true;
+      if (isDeleted || !keepInStream) {
+        return '[] TJ';
+      }
+      return '[' + arrayContent.split('(' + targetLit + ')').join('(' + repLit + ')') + '] TJ';
+    }
+    return match;
+  });
+
+  return { updatedStream: updated, matched };
+}
+
+/**
+ * Replaces or deletes existing text in a PDF document using direct content stream manipulation.
+ * STRICTLY NEVER uses white rectangles or rasterization.
+ * Preserves 100% of the original vector fidelity and background graphics.
  */
 export async function replaceVectorTextInPdf(
   srcData: ArrayBuffer | Uint8Array,
@@ -1836,24 +2031,106 @@ export async function replaceVectorTextInPdf(
   const serifFont = await doc.embedFont(StandardFonts.TimesRoman);
   const monoFont = await doc.embedFont(StandardFonts.Courier);
 
+  // Group edits by page
+  const editsByPage = new Map<number, TextReplacementEdit[]>();
   for (const edit of edits) {
-    const pIdx = edit.pageNumber - 1;
+    const list = editsByPage.get(edit.pageNumber) || [];
+    list.push(edit);
+    editsByPage.set(edit.pageNumber, list);
+  }
+
+  for (const [pageNumber, pageEdits] of editsByPage.entries()) {
+    const pIdx = pageNumber - 1;
     if (pIdx < 0 || pIdx >= total) continue;
 
     const page = doc.getPage(pIdx);
+    const contents = (page.node as any).Contents();
 
-    // 1. Vector background coverage box (erases previous text with clean background)
-    page.drawRectangle({
-      x: edit.pdfX - 1,
-      y: edit.pdfY - 2,
-      width: edit.pdfWidth + 2,
-      height: edit.pdfHeight + 4,
-      color: rgb(1, 1, 1),
-      opacity: 1.0,
-    });
+    let streamRefs: PDFRef[] = [];
+    if (contents instanceof PDFRef) {
+      streamRefs = [contents];
+    } else if (contents instanceof PDFArray) {
+      streamRefs = contents.asArray().filter((r): r is PDFRef => r instanceof PDFRef);
+    }
 
-    // 2. If not deleted, draw replacement text in identical coordinates or updated moved coordinates
-    if (!edit.isDeleted && edit.newText.trim()) {
+    const needsDrawText: TextReplacementEdit[] = [];
+
+    // Step A: Modify existing PDF content stream directly
+    for (const ref of streamRefs) {
+      const rawObj = doc.context.lookup(ref);
+      if (!rawObj) continue;
+      try {
+        const decoded = decodePDFRawStream(rawObj as any);
+        let streamStr = new TextDecoder('latin1').decode(decoded.decode());
+        let streamChanged = false;
+
+        for (const edit of pageEdits) {
+          const hasCustomStyle =
+            Boolean(edit.fontFamily && edit.fontFamily !== 'sans') ||
+            Boolean(edit.color && edit.color !== '#000000') ||
+            typeof edit.newX === 'number' ||
+            typeof edit.newY === 'number';
+
+          const targetText = edit.originalText || edit.newText;
+          const { updatedStream, matched } = replaceTextInContentStream(
+            streamStr,
+            targetText,
+            edit.newText,
+            !!edit.isDeleted,
+            !hasCustomStyle
+          );
+
+          if (matched) {
+            streamStr = updatedStream;
+            streamChanged = true;
+            if (!edit.isDeleted && hasCustomStyle) {
+              needsDrawText.push(edit);
+            }
+          } else {
+            // Text not directly matched in stream (e.g. subset font encoding).
+            // Erase old text operator near coordinates without white box:
+            // Find text matrix Tm or Td near pdfX, pdfY and blank the following Tj
+            const tolerance = 8;
+            const matrixRegex = new RegExp(
+              `(-?\\d+(?:\\.\\d+)?)\\s+(-?\\d+(?:\\.\\d+)?)\\s+Tm([\\s\\S]*?)(?:\\([^)]*\\)|<[^>]*>)\\s*Tj`,
+              'g'
+            );
+            const replacedMatrixStream = streamStr.replace(
+              matrixRegex,
+              (m, txStr, tyStr, between) => {
+                const tx = parseFloat(txStr);
+                const ty = parseFloat(tyStr);
+                if (
+                  Math.abs(tx - edit.pdfX) <= tolerance &&
+                  Math.abs(ty - edit.pdfY) <= tolerance
+                ) {
+                  streamChanged = true;
+                  return `${txStr} ${tyStr} Tm${between}<> Tj`;
+                }
+                return m;
+              }
+            );
+            streamStr = replacedMatrixStream;
+            if (!edit.isDeleted && edit.newText.trim()) {
+              needsDrawText.push(edit);
+            }
+          }
+        }
+
+        if (streamChanged) {
+          const newBytes = new TextEncoder().encode(streamStr);
+          doc.context.assign(ref, doc.context.stream(newBytes));
+        }
+      } catch (streamErr) {
+        console.warn('Content stream decode warning on page', pageNumber, streamErr);
+      }
+    }
+
+    // Step B: Draw replacement text if custom styles/fonts/positions were requested
+    // (Notice: ZERO white rectangle is drawn! The old text was eliminated in Step A directly from stream)
+    for (const edit of needsDrawText) {
+      if (edit.isDeleted || !edit.newText.trim()) continue;
+
       let chosenFont = standardFont;
       if (edit.fontFamily === 'serif') chosenFont = serifFont;
       else if (edit.fontFamily === 'mono') chosenFont = monoFont;

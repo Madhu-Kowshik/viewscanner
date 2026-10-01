@@ -194,6 +194,7 @@ export const PdfEditor: React.FC = () => {
 
     const newEdit: TextReplacementEdit = {
       pageNumber: selectedPageIndex + 1,
+      originalText: selectedTextItem.text,
       pdfX: selectedTextItem.pdfX,
       pdfY: selectedTextItem.pdfY,
       pdfWidth: selectedTextItem.pdfWidth,
@@ -225,6 +226,7 @@ export const PdfEditor: React.FC = () => {
 
     const deleteEdit: TextReplacementEdit = {
       pageNumber: selectedPageIndex + 1,
+      originalText: selectedTextItem.text,
       pdfX: selectedTextItem.pdfX,
       pdfY: selectedTextItem.pdfY,
       pdfWidth: selectedTextItem.pdfWidth,
