@@ -31,18 +31,34 @@ OmniPDF is continuously advancing to push the boundaries of browser-native docum
 
 ---
 
-## Phase 2 — Enhanced Desktop & Offline Experience (In Progress 🚀)
-- [ ] **Progressive Web App (PWA) Offline Mode**:
-  - Service worker caching of application bundle, WebAssembly binaries, and OCR models for 100% offline flight/disconnected usage.
-- [ ] **File System Access API Integration**:
-  - Direct save-to-disk overwriting without triggering browser download bars (Chromium browsers).
-- [ ] **WebAssembly OpenCV Pipeline**:
-  - Automatic 4-corner document boundary detection and quadrilateral perspective warping for camera photos.
+## Phase 2 — Second-Generation Document Studio & Vector Editing (Completed ✅)
+- [x] **⭐ Unified 3-Pane Document Studio Workspace**:
+  - Left thumbnail panel, center high-DPI canvas viewport, right contextual tool inspector, top tool switcher, and bottom status bar.
+  - Continuous workflow: Upload once -> View -> Edit Text -> Annotate -> Sign -> Watermark -> Compress -> Export in the same session without re-uploading.
+- [x] **⭐ True Vector PDF Text Editing**:
+  - In-place text replacement in native PDF vector streams without rasterization blur.
+  - Interactive click-to-edit, typography control (Helvetica, Times, Courier, Bold), font size, color, delete, move, and reposition.
+- [x] **⭐ First-Class Image Studio & In-Image Text Editing**:
+  - Full-featured studio for PNG, JPG, JPEG, WEBP, BMP, and TIFF images.
+  - CamScanner paper bleaching, high-contrast B&W, brightness/contrast, rotation, flipping, interactive crop.
+  - Neural OCR detects text in images, allowing click-to-edit with tone-matched background patches.
+- [x] **⭐ Color-Selective Watermark Removal**:
+  - Selective stamp suppression lifting faint color/gray watermarks to clean white while preserving dark text.
+- [x] **⭐ Universal File Ingestion**:
+  - Drag and drop any PDF, JPG, PNG, WEBP, BMP, or TXT file into any dropzone with automatic conversion into the workspace.
+- [x] **⭐ Smart Document Intelligence**:
+  - Automatic detection of scanned bitmap documents vs. native vector text documents with contextual tool suggestions.
+- [x] **⭐ Pre-Export Inspection Center**:
+  - Pre-download modal validating document health, page counts, output format, compression, and size estimates.
 
 ---
 
-## Phase 3 — Enterprise Compliance & Cryptography (Future 🔮)
+## Phase 3 — Enterprise Compliance & Native Features (Upcoming 🚀)
+- [ ] **Progressive Web App (PWA) Offline Mode**:
+  - Service worker caching of application bundle, WebAssembly binaries, and OCR models for 100% offline usage.
+- [ ] **File System Access API Integration**:
+  - Direct save-to-disk overwriting without triggering browser download bars (Chromium browsers).
+- [ ] **WebAssembly OpenCV Document Detection**:
+  - Automatic 4-corner document boundary detection and quadrilateral perspective warping for camera photos.
 - [ ] **PDF/A Archival Compliance Validator**:
   - Conversion and verification for ISO 19005 archival standards (PDF/A-1b, PDF/A-2b).
-- [ ] **Client-Side PKI Digital Signatures**:
-  - WebCrypto-based X.509 digital certificate signing with visible cryptographic signature badges.

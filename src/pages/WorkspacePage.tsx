@@ -23,6 +23,7 @@ import { FormWorkspace } from '../components/forms/FormWorkspace';
 import { PdfRepairWorkspace } from '../components/repair/PdfRepairWorkspace';
 import { WorkflowsWorkspace } from '../components/workflows/WorkflowsWorkspace';
 import { ImageEditorWorkspace } from '../components/image-editor/ImageEditorWorkspace';
+import { UnifiedDocumentWorkspace, WorkspaceStudioMode } from '../components/studio/UnifiedDocumentWorkspace';
 import { ResultModal } from '../components/common/ResultModal';
 import { ProcessingOverlay } from '../components/common/ProcessingOverlay';
 import { Button } from '../components/ui/Button';
@@ -65,6 +66,43 @@ export const WorkspacePage: React.FC<WorkspacePageProps> = ({ initialTool = 'org
   else if (path.includes('/repair')) activeTool = 'repair';
   else if (path.includes('/workflows')) activeTool = 'workflows';
   else if (path.includes('/organize')) activeTool = 'organize';
+
+  const isStudioTool = [
+    'organize',
+    'viewer',
+    'editor',
+    'scanned-editor',
+    'forms',
+    'sign',
+    'watermark',
+    'compress',
+  ].includes(activeTool);
+
+  const modeMap: Record<string, WorkspaceStudioMode> = {
+    organize: 'organize',
+    viewer: 'view',
+    editor: 'edit-text',
+    'scanned-editor': 'scanned-ocr',
+    forms: 'forms',
+    sign: 'sign',
+    watermark: 'watermark',
+    compress: 'compress',
+  };
+
+  // If a document is loaded and the user is accessing any document manipulation tool,
+  // render the enterprise 3-pane Unified Studio Workspace!
+  if (currentFile && isStudioTool) {
+    return (
+      <div className="flex-1 flex flex-col h-[calc(100vh-4rem)] overflow-hidden">
+        <UnifiedDocumentWorkspace
+          initialMode={modeMap[activeTool] || 'view'}
+          onNavigateHome={() => navigate('/')}
+        />
+        <ResultModal onOpenViewer={() => navigate('/viewer')} />
+        <ProcessingOverlay />
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-[calc(100vh-4rem)] overflow-hidden bg-slate-50 dark:bg-slate-950">

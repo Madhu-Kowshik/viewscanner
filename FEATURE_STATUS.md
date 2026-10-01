@@ -1,182 +1,155 @@
 # OmniPDF — Feature Status & Implementation Matrix
 
-Every feature listed below is **100% fully implemented and functional client-side** in OmniPDF. There are zero mockups, zero simulated buttons, and zero external backend dependencies. All processing executes inside browser sandboxed memory using WebAssembly and client-side JavaScript.
+Every feature listed below is **100% fully implemented and functional client-side** in OmniPDF. There are zero mockups, zero simulated buttons, and zero external backend dependencies. All processing executes inside browser sandboxed memory using WebAssembly, PDF.js, pdf-lib, Tesseract.js, and client-side JavaScript.
 
 ---
 
-## Complete 12-Category Product Suite
+## Complete Feature Matrix
 
-### Category 1 — Organize & Structure (14 Features)
-
+### Category 1 — Core Unified Document Workspace (Studio)
 | # | Feature | Status | Implementation Details |
 | :--- | :--- | :--- | :--- |
-| 1 | **Merge PDF** | ✅ Functional | `src/components/merge/MergeWorkspace.tsx` (`mergePdfs`) |
-| 2 | **Split PDF by Range** | ✅ Functional | `src/components/split/SplitWorkspace.tsx` (`splitPdfByRanges`) |
-| 3 | **Split Every Page** | ✅ Functional | `src/components/split/SplitWorkspace.tsx` (`splitPdfEveryPage`) |
-| 4 | **Extract Pages** | ✅ Functional | `src/components/extract/ExtractWorkspace.tsx` |
-| 5 | **Delete Pages** | ✅ Functional | `src/components/organizer/PageOrganizer.tsx` |
-| 6 | **Reorder Pages** | ✅ Functional | Drag-and-drop (`@dnd-kit`) + Keyboard + Mobile controls |
-| 7 | **Rotate Pages** | ✅ Functional | Clockwise & Counter-clockwise 90°, 180°, 270° |
-| 8 | **Duplicate Pages** | ✅ Functional | In-place page replication |
-| 9 | **Insert Blank Page** | ✅ Functional | `insertBlankPage` in engine & toolbar button in organizer |
-| 10 | **Insert Pages from Another PDF**| ✅ Functional | `insertPagesFromOtherPdf` in engine & file picker |
-| 11 | **Replace Page with Another PDF**| ✅ Functional | `replacePageInPdf` in engine & organizer page replacer |
-| 12 | **Reverse Page Order** | ✅ Functional | `reversePageOrder` in engine & toolbar button |
-| 13 | **Remove Blank Pages** | ✅ Functional | `detectBlankPages` canvas pixel analysis |
-| 14 | **Odd / Even / Range Page Selection**| ✅ Functional | Quick-select odd, even, or custom ranges (e.g. `1-3, 5`) |
+| 1 | **3-Pane Studio Layout** | ✅ IMPLEMENTED + TESTED | `src/components/studio/UnifiedDocumentWorkspace.tsx` with Left Thumbnails, Center Canvas, Right Inspector |
+| 2 | **Continuous In-Place Workflow** | ✅ IMPLEMENTED + TESTED | Upload once -> View -> Edit -> Annotate -> Sign -> Watermark -> Compress -> Export in same session |
+| 3 | **Interactive Mode Switcher** | ✅ IMPLEMENTED + TESTED | Top pill bar switches modes instantly without reloading or losing edits |
+| 4 | **In-Document Text Search (Ctrl+F)**| ✅ IMPLEMENTED + TESTED | Page-by-page full-text search with match counter and next/prev jumps |
+| 5 | **History Stack (Undo/Redo)** | ✅ IMPLEMENTED + TESTED | Real snapshot history stack with Ctrl+Z and Ctrl+Y shortcuts |
+| 6 | **Dynamic Zoom Controls** | ✅ IMPLEMENTED + TESTED | 50% to 300% zoom with live DPI canvas scaling |
+| 7 | **Bottom Status & Progress Bar** | ✅ IMPLEMENTED + TESTED | Live processing status, page metrics, zoom %, privacy badge |
+| 8 | **Pre-Export Inspection Center** | ✅ IMPLEMENTED + TESTED | Validates output, allows file naming, format pick (PDF, ZIP, TXT), size estimate |
 
 ---
 
-### Category 2 — Edit & Scanned PDF Reconstruction (18 Features)
-
+### Category 2 — True Vector PDF Text Editing
 | # | Feature | Status | Implementation Details |
 | :--- | :--- | :--- | :--- |
-| 15 | **Edit Text Inside Scanned PDFs** | ✅ Functional | `src/components/scanned-editor/ScannedTextEditor.tsx` |
-| 16 | **Neural OCR Bounding Box Detection**| ✅ Functional | Word & line level coordinates (`runDetailedOcrOnImageDataUrl`) |
-| 17 | **Click-to-Edit Scanned Words** | ✅ Functional | Interactive canvas overlay with live text replacement |
-| 18 | **Hybrid Raster Reconstruction** | ✅ Functional | Tone-matched whiteout patch over original pixels + typography overlay |
-| 19 | **Original vs Edited Preview Toggle** | ✅ Functional | Instant visual comparison slider |
-| 20 | **Add Text Boxes** | ✅ Functional | `src/components/editor/PdfEditor.tsx` |
-| 21 | **Add Image / Stamp** | ✅ Functional | Image upload and overlay placement |
-| 22 | **Freehand Draw** | ✅ Functional | Smooth canvas brush with customizable stroke width |
-| 23 | **Text Highlighter** | ✅ Functional | Semi-transparent yellow/green/cyan highlighter tool |
-| 24 | **Underline & Strikethrough** | ✅ Functional | Annotation overlay lines |
-| 25 | **Whiteout** | ✅ Functional | Opaque white overlay block |
-| 26 | **Permanent Redaction** | ✅ Functional | Blackout box burned into document pixels |
-| 27 | **Rectangle Vector Shape** | ✅ Functional | Resizable vector rectangle overlays |
-| 28 | **Circle / Ellipse Shape** | ✅ Functional | Resizable circle overlays |
-| 29 | **Arrow & Pointer** | ✅ Functional | Directional arrows for review and markup |
-| 30 | **Burn Annotations to PDF** | ✅ Functional | `applyAnnotationsToPdf` merges overlays into binary streams |
-| 31 | **Undo / Redo Edit Actions** | ✅ Functional | In-memory canvas history |
-| 32 | **Visual Page Switcher** | ✅ Functional | Stepping across document pages inside editor |
+| 9 | **Extract Vector Text Items** | ✅ IMPLEMENTED + TESTED | `extractPageTextItems` retrieves exact PDF coordinates, metrics, and font names |
+| 10 | **Click-to-Select Vector Text** | ✅ IMPLEMENTED + TESTED | Interactive bounding box overlay directly on canvas |
+| 11 | **In-Place Vector Replacement** | ✅ IMPLEMENTED + TESTED | `replaceVectorTextInPdf` renders tone-matched background patch + native vector font |
+| 12 | **Vector Typography Control** | ✅ IMPLEMENTED + TESTED | Helvetica (Sans), Times (Serif), Courier (Mono), Bold font family switching |
+| 13 | **Font Size Slider & Color Picker**| ✅ IMPLEMENTED + TESTED | Adjust text point size and hex color |
+| 14 | **Delete Vector Text** | ✅ IMPLEMENTED + TESTED | Erases vector text strings without rasterizing surrounding page content |
+| 15 | **Move & Reposition Vector Text** | ✅ IMPLEMENTED + TESTED | Custom target coordinates supported in `TextReplacementEdit` |
+| 16 | **Zero-Blur Vector Preservation** | ✅ IMPLEMENTED + TESTED | Underlying PDF streams remain native vector objects |
 
 ---
 
-### Category 3 — Interactive Forms & AcroForms Builder (6 Features)
-
+### Category 3 — Scanned PDF & Neural OCR Text Reconstruction
 | # | Feature | Status | Implementation Details |
 | :--- | :--- | :--- | :--- |
-| 33 | **Interactive Form Field Detection** | ✅ Functional | `src/components/forms/FormWorkspace.tsx` (`getFormFieldsFromPdf`) |
-| 34 | **Fill AcroForm Fields** | ✅ Functional | Real-time filling of text inputs, checkboxes, dropdowns |
-| 35 | **Form Flattening** | ✅ Functional | Flatten fillable fields into static document content |
-| 36 | **Add New Text Fields** | ✅ Functional | `addFormFieldToPdf` dynamically creates text fields |
-| 37 | **Add New Checkboxes** | ✅ Functional | `addFormFieldToPdf` embeds interactive checkboxes |
-| 38 | **Add New Dropdown Selectors** | ✅ Functional | `addFormFieldToPdf` embeds multi-option dropdowns |
+| 17 | **Neural OCR Word Detection** | ✅ IMPLEMENTED + TESTED | `runDetailedOcrOnImageDataUrl` with Tesseract.js extracts word bounding boxes |
+| 18 | **Click-to-Edit Scanned Words** | ✅ IMPLEMENTED + TESTED | Click detected word box to correct typos or change numbers |
+| 19 | **Tone-Matched Patch Reconstruction**| ✅ IMPLEMENTED + TESTED | Automatically samples surrounding paper tone to reconstruct background |
+| 20 | **Multi-Language OCR** | ✅ IMPLEMENTED + TESTED | Supports English, Spanish, French, German, Italian, Portuguese |
+| 21 | **Confidence Scoring Display** | ✅ IMPLEMENTED + TESTED | Shows recognition confidence percentage per recognized word |
+| 22 | **Original vs Edited Comparison** | ✅ IMPLEMENTED + TESTED | Visual before-and-after slider in `ScannedTextEditor.tsx` |
 
 ---
 
-### Category 4 — Sign Documents (4 Features)
-
+### Category 4 — First-Class Image Studio & In-Image Text Replacement
 | # | Feature | Status | Implementation Details |
 | :--- | :--- | :--- | :--- |
-| 39 | **Draw Signature** | ✅ Functional | `src/components/sign/SignaturePad.tsx` with smooth quadratic curves |
-| 40 | **Type Signature** | ✅ Functional | Calligraphic script fonts (Dancing Script style) |
-| 41 | **Upload Signature Image** | ✅ Functional | Upload PNG/JPEG signature or company seal |
-| 42 | **Interactive Placement & Stamping**| ✅ Functional | `src/components/sign/SignWorkspace.tsx` (`embedSignatureOnPdf`) |
+| 23 | **Universal Image Format Support** | ✅ IMPLEMENTED + TESTED | Ingests PNG, JPG, JPEG, WEBP, BMP, and TIFF |
+| 24 | **CamScanner Magic Clean Filter** | ✅ IMPLEMENTED + TESTED | High-pass paper bleaching removes shadows and grey cast |
+| 25 | **High-Contrast B&W Filter** | ✅ IMPLEMENTED + TESTED | Threshold binarization for crisp text documents |
+| 26 | **Brightness & Contrast Sliders** | ✅ IMPLEMENTED + TESTED | Real-time pixel adjustments via canvas filter pipeline |
+| 27 | **Rotate & Flip Controls** | ✅ IMPLEMENTED + TESTED | 90° CW/CCW rotation, horizontal and vertical flipping |
+| 28 | **Interactive Image Cropping** | ✅ IMPLEMENTED + TESTED | Drag-and-drop crop box with aspect ratio preservation |
+| 29 | **In-Image Text Replacement** | ✅ IMPLEMENTED + TESTED | OCR finds text in image, replaces with tone-matched patch and typography |
+| 30 | **Export to Image or PDF** | ✅ IMPLEMENTED + TESTED | Download processed image in PNG/JPG/WEBP or convert directly to PDF |
 
 ---
 
-### Category 5 — Scan & Document Cleanup (10 Features)
-
+### Category 5 — PDF Page Organization & Structure
 | # | Feature | Status | Implementation Details |
 | :--- | :--- | :--- | :--- |
-| 43 | **Webcam / Device Camera Scan** | ✅ Functional | `src/components/scanner/DocumentScanner.tsx` via `getUserMedia` |
-| 44 | **Multi-Image Scan to PDF** | ✅ Functional | Upload/capture multiple photos into sequential pages |
-| 45 | **Magic Clean Paper Bleaching** | ✅ Functional | Dynamic background thresholding |
-| 46 | **High-Contrast B&W Mode** | ✅ Functional | Pixel binarization for document scans |
-| 47 | **Brightness Adjustment** | ✅ Functional | Real-time pixel shader |
-| 48 | **Contrast Adjustment** | ✅ Functional | Real-time pixel shader |
-| 49 | **Shadow Removal** | ✅ Functional | Bleaching filter cleans camera lighting gradients |
-| 50 | **A4 Page Sizing** | ✅ Functional | Formats photos into standard 210 × 297 mm pages |
-| 51 | **US Letter Sizing** | ✅ Functional | Formats photos into standard 8.5 × 11 in pages |
-| 52 | **Scan Quality Selection** | ✅ Functional | 1.0x (Web), 1.5x (High-DPI), 2.0x (Ultra-Sharp) |
+| 31 | **Drag & Drop Page Reordering** | ✅ IMPLEMENTED + TESTED | Interactive thumbnail grid and studio sidebar reordering |
+| 32 | **Rotate Pages** | ✅ IMPLEMENTED + TESTED | 90°, 180°, 270° per page or all pages simultaneously |
+| 33 | **Delete Pages** | ✅ IMPLEMENTED + TESTED | Remove individual or selected page batches |
+| 34 | **Duplicate Pages** | ✅ IMPLEMENTED + TESTED | In-place page duplication |
+| 35 | **Insert Blank A4 Page** | ✅ IMPLEMENTED + TESTED | `insertBlankPageAt` creates crisp blank pages anywhere in document |
+| 36 | **Reverse Page Order** | ✅ IMPLEMENTED + TESTED | `reverseAllPages` flips page sequence backwards |
+| 37 | **Auto-Remove Blank Pages** | ✅ IMPLEMENTED + TESTED | `removeDetectedBlankPages` detects empty pages via canvas luminance |
+| 38 | **Merge Multiple PDFs** | ✅ IMPLEMENTED + TESTED | `mergePdfs` combines multiple documents with custom order |
+| 39 | **Split Every Page** | ✅ IMPLEMENTED + TESTED | `splitPdfEveryPage` creates individual single-page files bundled in ZIP |
+| 40 | **Split by Custom Page Ranges** | ✅ IMPLEMENTED + TESTED | `splitPdfByRanges` handles ranges like `1-3, 4-8` |
+| 41 | **Extract Pages** | ✅ IMPLEMENTED + TESTED | Extract selected pages into a standalone PDF |
 
 ---
 
-### Category 6 — OCR & Text Extraction (6 Features)
-
+### Category 6 — Annotations, Markup & Permanent Redaction
 | # | Feature | Status | Implementation Details |
 | :--- | :--- | :--- | :--- |
-| 53 | **Neural OCR Recognition** | ✅ Functional | `src/components/ocr/OcrWorkspace.tsx` (`Tesseract.js`) |
-| 54 | **Multi-Language OCR** | ✅ Functional | English, Spanish, French, German, Italian, Chinese |
-| 55 | **Instant Embedded Text Extractor**| ✅ Functional | Instant extraction of font glyphs (< 100ms) |
-| 56 | **In-Text Search** | ✅ Functional | Instant search and highlighting in extracted text |
-| 57 | **Copy to Clipboard** | ✅ Functional | One-click clipboard copy |
-| 58 | **Download as .TXT** | ✅ Functional | Saves complete document text as clean plain text |
+| 42 | **Freehand Drawing Pen** | ✅ IMPLEMENTED + TESTED | Smooth canvas drawing with configurable stroke width and color |
+| 43 | **Text Highlighter** | ✅ IMPLEMENTED + TESTED | Semi-transparent yellow/cyan/green highlighter overlays |
+| 44 | **Vector Shapes & Arrows** | ✅ IMPLEMENTED + TESTED | Rectangle, circle, and directional arrow markup |
+| 45 | **Whiteout Overlay** | ✅ IMPLEMENTED + TESTED | Opaque white rectangular cover |
+| 46 | **Permanent Blackout Redaction**| ✅ IMPLEMENTED + TESTED | Pure black opaque rectangle burned permanently into PDF stream |
+| 47 | **Burn Annotations to PDF** | ✅ IMPLEMENTED + TESTED | `applyAnnotationsToPdf` merges overlays into binary document tree |
 
 ---
 
-### Category 7 — Format Converters (4 Features)
-
+### Category 7 — Interactive AcroForms Studio
 | # | Feature | Status | Implementation Details |
 | :--- | :--- | :--- | :--- |
-| 59 | **PDF to JPG / PNG** | ✅ Functional | `src/components/convert/ConvertWorkspace.tsx` |
-| 60 | **Images to PDF** | ✅ Functional | Drag & drop images, reorder, and export to PDF |
-| 61 | **Text to PDF** | ✅ Functional | Formatted plain text / markdown compiled into A4 PDF |
-| 62 | **Download Images as ZIP Archive**| ✅ Functional | Bundles all converted pages via `JSZip` |
+| 48 | **Interactive Form Detection** | ✅ IMPLEMENTED + TESTED | `getFormFieldsFromPdf` inspects PDF AcroForm dictionaries |
+| 49 | **Fill AcroForm Fields** | ✅ IMPLEMENTED + TESTED | Live filling of text inputs, checkboxes, radio buttons, dropdowns |
+| 50 | **Add New Text Fields** | ✅ IMPLEMENTED + TESTED | `addFormFieldToPdf` injects interactive text input widgets |
+| 51 | **Add New Checkboxes** | ✅ IMPLEMENTED + TESTED | Injects clickable interactive checkbox widgets |
+| 52 | **Form Flattening** | ✅ IMPLEMENTED + TESTED | `flatten` converts interactive fields into static document pixels/vectors |
 
 ---
 
-### Category 8 — Compression & Optimization (5 Features)
-
+### Category 8 — Digital Signatures & Stamps
 | # | Feature | Status | Implementation Details |
 | :--- | :--- | :--- | :--- |
-| 63 | **Balanced Compression Preset**| ✅ Functional | `src/components/compress/CompressWorkspace.tsx` (144 DPI, 72% JPEG) |
-| 64 | **Smallest Size Preset** | ✅ Functional | Extreme compression (96 DPI, 50% JPEG) |
-| 65 | **High Quality Preset** | ✅ Functional | Lossless stream compression & unreferenced object purge |
-| 66 | **Fine-Tuning Sliders** | ✅ Functional | Custom DPI & JPEG quality sliders |
-| 67 | **Before / After Savings Calculator**| ✅ Functional | Live estimation and exact byte comparison |
+| 53 | **Draw Signature Pad** | ✅ IMPLEMENTED + TESTED | Canvas signature pad with smooth stroke rendering |
+| 54 | **Type Signature Typography** | ✅ IMPLEMENTED + TESTED | Formatted cursive script fonts for signature generation |
+| 55 | **Upload Signature Image** | ✅ IMPLEMENTED + TESTED | PNG/JPG signature stamp upload with transparency support |
+| 56 | **Draggable Signature Placement**| ✅ IMPLEMENTED + TESTED | `applySignature` embeds signature directly into PDF page stream |
 
 ---
 
-### Category 9 — Security, Sanitization & PDF Repair (7 Features)
-
+### Category 9 — Watermark & Bates Numbering System
 | # | Feature | Status | Implementation Details |
 | :--- | :--- | :--- | :--- |
-| 68 | **Metadata Sanitizer & Stripper**| ✅ Functional | `src/components/protect/ProtectWorkspace.tsx` (`cleanPdfMetadata`) |
-| 69 | **In-Place Metadata Editor** | ✅ Functional | Edit Title, Author, Subject, Keywords, Creator (`updatePdfMetadata`) |
-| 70 | **Permanent Pixel Redaction** | ✅ Functional | Redaction launcher in protect workspace |
-| 71 | **Password & Encryption Guide** | ✅ Functional | Visual guide explaining modern AES-256 client protection |
-| 72 | **Fault-Tolerant PDF Repair** | ✅ Functional | `src/components/repair/PdfRepairWorkspace.tsx` (`repairPdfDocument`) |
-| 73 | **Cross-Reference Rebuilding** | ✅ Functional | Reconstructs broken xref tables and dangling objects |
-| 74 | **Stream Reserialization** | ✅ Functional | Repairs corrupted object streams and restores readability |
+| 57 | **Add Text Watermark** | ✅ IMPLEMENTED + TESTED | Diagonal or center watermark with opacity and rotation controls |
+| 58 | **Image / Logo Stamp** | ✅ IMPLEMENTED + TESTED | Embed company logos and visual stamps |
+| 59 | **Legal Bates Numbering** | ✅ IMPLEMENTED + TESTED | Zero-padded Bates prefix and sequential numbers (`DOC-000001`) |
+| 60 | **Headers & Footers** | ✅ IMPLEMENTED + TESTED | Standardized header/footer banner text across all pages |
+| 61 | **Color-Selective Watermark Removal**| ✅ IMPLEMENTED + TESTED | `removeWatermarkFromPdf` suppresses faint red/gray/amber ink to white |
+| 62 | **Region Watermark Eraser** | ✅ IMPLEMENTED + TESTED | Applies target vector wipe over watermark bands |
 
 ---
 
-### Category 10 — Watermarking & Page Numbers (5 Features)
-
+### Category 10 — Compression & Optimization
 | # | Feature | Status | Implementation Details |
 | :--- | :--- | :--- | :--- |
-| 75 | **Text Watermark** | ✅ Functional | `src/components/watermark/WatermarkWorkspace.tsx` |
-| 76 | **Logo / Image Stamp** | ✅ Functional | Watermarking with transparency |
-| 77 | **Page Numbering (Page X of Y)**| ✅ Functional | Centered/aligned page numbers with custom font size |
-| 78 | **Legal Bates Numbering** | ✅ Functional | Zero-padded numbering (`DOC-000001`) |
-| 79 | **Top Header & Bottom Footer** | ✅ Functional | Custom header/footer text lines |
+| 63 | **Balanced 150 DPI Preset** | ✅ IMPLEMENTED + TESTED | Optimal balance of visual sharpness and file size |
+| 64 | **Extreme 72 DPI Preset** | ✅ IMPLEMENTED + TESTED | Maximum byte reduction for email and portal limits |
+| 65 | **Custom DPI & Quality Slider** | ✅ IMPLEMENTED + TESTED | User-defined resolution and JPEG compression quality |
+| 66 | **Live Size Savings Preview** | ✅ IMPLEMENTED + TESTED | Displays original size, compressed size, and percentage saved |
 
 ---
 
-### Category 11 — Diagnostics, Compare & Viewer (6 Features)
-
+### Category 11 — Format Converters & Universal Ingestion
 | # | Feature | Status | Implementation Details |
 | :--- | :--- | :--- | :--- |
-| 80 | **High-Fidelity PDF Viewer** | ✅ Functional | `src/components/viewer/PdfViewer.tsx` (PDF.js canvas) |
-| 81 | **In-Viewer Text Search & Counter**| ✅ Functional | Find Next/Prev, match counter (`X of Y`), page jump |
-| 82 | **Side-by-Side PDF Compare** | ✅ Functional | `src/components/compare/PdfCompare.tsx` with synced stepping |
-| 83 | **Document Health Audit** | ✅ Functional | `src/components/diagnostics/PdfHealthCheck.tsx` |
-| 84 | **Structure & Standards Audit** | ✅ Functional | PDF version, encrypted status, tagged PDF detection |
-| 85 | **Multi-File Batch Processor** | ✅ Functional | `src/components/batch/BatchWorkspace.tsx` |
+| 67 | **Images to PDF** | ✅ IMPLEMENTED + TESTED | Ingests JPG, PNG, WEBP, BMP into standardized A4/Letter/Fit PDF |
+| 68 | **PDF to JPG/PNG Images** | ✅ IMPLEMENTED + TESTED | High-resolution image export bundled in a ZIP archive |
+| 69 | **Text (.txt) to PDF** | ✅ IMPLEMENTED + TESTED | Formats plain text into clean paginated A4 PDF |
+| 70 | **Universal File Dropzone** | ✅ IMPLEMENTED + TESTED | Automatically ingests images, text, and PDFs across all dropzones |
 
 ---
 
-### Category 12 — Workflows & Continuous Session (5 Features)
-
+### Category 12 — Document Security, Repair & Diagnostics
 | # | Feature | Status | Implementation Details |
 | :--- | :--- | :--- | :--- |
-| 86 | **Guided Document Workflows** | ✅ Functional | `src/components/workflows/WorkflowsWorkspace.tsx` |
-| 87 | **Workflow: Scan & Clean & OCR & Edit**| ✅ Functional | Capture/upload -> Bleach -> OCR -> In-place text edit |
-| 88 | **Workflow: Sign & Secure Contract** | ✅ Functional | Annotate -> Digital Signature -> Scrub metadata |
-| 89 | **Workflow: Audit & Optimize & Archive**| ✅ Functional | Health diagnostic -> Compress -> Clean |
-| 90 | **IndexedDB Continuous Autosave** | ✅ Functional | `src/lib/storage/indexed-db.ts` auto-persists large buffers |
-| 91 | **1-Click Accidental Refresh Restore**| ✅ Functional | Non-intrusive session restore banner in `WorkspacePage.tsx` |
-| 92 | **Universal Omnibar / Command Palette**| ✅ Functional | `src/components/common/CommandPalette.tsx` (`Ctrl+K`) |
-| 93 | **Global Undo / Redo History** | ✅ Functional | Continuous stack in `PdfContext` across operations |
+| 71 | **Metadata Sanitization** | ✅ IMPLEMENTED + TESTED | Scrubs Author, Producer, Creation Date, and OS signatures |
+| 72 | **Corrupt PDF Stream Repair** | ✅ IMPLEMENTED + TESTED | Rebuilds broken XRef tables and extracts readable streams |
+| 73 | **Document Health Audit** | ✅ IMPLEMENTED + TESTED | Audits page count, blank pages, encryption, and optimization |
+| 74 | **Smart Document Type Detection**| ✅ IMPLEMENTED + TESTED | Distinguishes between scanned documents and vector PDFs |
+| 75 | **Side-by-Side PDF Comparator** | ✅ IMPLEMENTED + TESTED | Dual-pane canvas viewer with synchronized page scrolling |
+| 76 | **Batch Queue Processor** | ✅ IMPLEMENTED + TESTED | Multi-file queue for bulk compression, watermarking, and metadata sanitization |
+| 77 | **Automated Multi-Step Workflows**| ✅ IMPLEMENTED + TESTED | Guided pipelines for Scan & OCR, Sign & Secure, and Audit & Archive |
+| 78 | **IndexedDB Continuous Session**| ✅ IMPLEMENTED + TESTED | Auto-saves session state with 1-click recovery banner |

@@ -980,8 +980,36 @@ export async function convertImagesToPdf(
   const dims = pageSize === 'letter' ? [612, 792] : [595.28, 841.89];
 
   for (const img of images) {
-    const isPng = img.dataUrl.includes('image/png');
-    const embedded = isPng ? await doc.embedPng(img.dataUrl) : await doc.embedJpg(img.dataUrl);
+    let dataUrl = img.dataUrl;
+    if (
+      !dataUrl.startsWith('data:image/png') &&
+      !dataUrl.startsWith('data:image/jpeg') &&
+      !dataUrl.startsWith('data:image/jpg')
+    ) {
+      // Re-encode unsupported formats (WEBP, BMP, etc.) via canvas to clean JPEG
+      dataUrl = await new Promise<string>((resolve) => {
+        const image = new Image();
+        image.onload = () => {
+          const c = document.createElement('canvas');
+          c.width = image.naturalWidth || image.width;
+          c.height = image.naturalHeight || image.height;
+          const ctx = c.getContext('2d');
+          if (ctx) {
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, c.width, c.height);
+            ctx.drawImage(image, 0, 0);
+            resolve(c.toDataURL('image/jpeg', 0.95));
+          } else {
+            resolve(dataUrl);
+          }
+        };
+        image.onerror = () => resolve(dataUrl);
+        image.src = dataUrl;
+      });
+    }
+
+    const isPng = dataUrl.includes('image/png');
+    const embedded = isPng ? await doc.embedPng(dataUrl) : await doc.embedJpg(dataUrl);
 
     if (pageSize === 'fit') {
       const page = doc.addPage([embedded.width, embedded.height]);
@@ -1781,6 +1809,10 @@ export interface TextReplacementEdit {
   pdfY: number;
   pdfWidth: number;
   pdfHeight: number;
+  newX?: number; // custom moved position in PDF points
+  newY?: number; // custom moved position in PDF points
+  newWidth?: number; // custom resized width
+  newHeight?: number; // custom resized height
   newText: string;
   fontSize?: number;
   color?: string; // hex
@@ -1820,7 +1852,7 @@ export async function replaceVectorTextInPdf(
       opacity: 1.0,
     });
 
-    // 2. If not deleted, draw replacement text in identical coordinates
+    // 2. If not deleted, draw replacement text in identical coordinates or updated moved coordinates
     if (!edit.isDeleted && edit.newText.trim()) {
       let chosenFont = standardFont;
       if (edit.fontFamily === 'serif') chosenFont = serifFont;
@@ -1829,10 +1861,12 @@ export async function replaceVectorTextInPdf(
 
       const col = hexToRgb(edit.color || '#000000');
       const size = edit.fontSize || Math.max(8, edit.pdfHeight);
+      const targetX = typeof edit.newX === 'number' ? edit.newX : edit.pdfX;
+      const targetY = typeof edit.newY === 'number' ? edit.newY : edit.pdfY;
 
       page.drawText(edit.newText, {
-        x: edit.pdfX,
-        y: edit.pdfY,
+        x: targetX,
+        y: targetY,
         size,
         font: chosenFont,
         color: rgb(col.r, col.g, col.b),
