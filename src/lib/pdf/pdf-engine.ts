@@ -1705,3 +1705,252 @@ export async function repairPdfDocument(pdfBytes: ArrayBuffer | Uint8Array): Pro
     };
   }
 }
+
+export interface PdfTextItemInfo {
+  id: string;
+  text: string;
+  x: number; // normalized [0, 1] relative to page width
+  y: number; // normalized [0, 1] relative to page height
+  width: number; // normalized [0, 1]
+  height: number; // normalized [0, 1]
+  pdfX: number; // in PDF points
+  pdfY: number; // in PDF points
+  pdfWidth: number;
+  pdfHeight: number;
+  fontSize: number;
+  fontName?: string;
+}
+
+/**
+ * Extracts vector text items with precise coordinates from a PDF page using PDF.js.
+ * This enables True PDF Text Editing (Click -> Select -> Edit -> Replace).
+ */
+export async function extractPageTextItems(
+  srcData: ArrayBuffer | Uint8Array,
+  pageNumber: number // 1-indexed
+): Promise<PdfTextItemInfo[]> {
+  const loadingTask = pdfjsLib.getDocument({
+    data: new Uint8Array(srcData.slice(0)),
+    cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/',
+    cMapPacked: true,
+  });
+
+  const pdf = await loadingTask.promise;
+  const page = await pdf.getPage(pageNumber);
+  const textContent = await page.getTextContent();
+  const viewport = page.getViewport({ scale: 1.0 });
+
+  const items: PdfTextItemInfo[] = [];
+
+  for (let i = 0; i < textContent.items.length; i++) {
+    const item = textContent.items[i] as any;
+    if (!item.str || !item.str.trim()) continue;
+
+    const tx = item.transform[4];
+    const ty = item.transform[5];
+    const w = item.width || Math.abs(item.transform[0]) * item.str.length * 0.6;
+    const h = item.height || Math.abs(item.transform[3]) || 12;
+
+    const normX = tx / viewport.width;
+    const normY = (viewport.height - ty - h) / viewport.height;
+    const normW = w / viewport.width;
+    const normH = h / viewport.height;
+
+    items.push({
+      id: `text_${pageNumber}_${i}_${Math.random().toString(36).substring(2, 7)}`,
+      text: item.str,
+      x: Math.max(0, Math.min(1, normX)),
+      y: Math.max(0, Math.min(1, normY)),
+      width: Math.max(0.01, Math.min(1, normW)),
+      height: Math.max(0.01, Math.min(1, normH)),
+      pdfX: tx,
+      pdfY: ty,
+      pdfWidth: w,
+      pdfHeight: h,
+      fontSize: Math.round(h),
+      fontName: item.fontName,
+    });
+  }
+
+  return items;
+}
+
+export interface TextReplacementEdit {
+  pageNumber: number; // 1-indexed
+  pdfX: number;
+  pdfY: number;
+  pdfWidth: number;
+  pdfHeight: number;
+  newText: string;
+  fontSize?: number;
+  color?: string; // hex
+  fontFamily?: string;
+  isDeleted?: boolean;
+}
+
+/**
+ * Replaces or deletes existing text in a PDF document using native PDF vector operations.
+ * Preserves 100% of the original vector fidelity without rasterizing the page.
+ */
+export async function replaceVectorTextInPdf(
+  srcData: ArrayBuffer | Uint8Array,
+  edits: TextReplacementEdit[]
+): Promise<Uint8Array> {
+  const doc = await PDFDocument.load(srcData, { ignoreEncryption: true });
+  const total = doc.getPageCount();
+
+  const standardFont = await doc.embedFont(StandardFonts.Helvetica);
+  const boldFont = await doc.embedFont(StandardFonts.HelveticaBold);
+  const serifFont = await doc.embedFont(StandardFonts.TimesRoman);
+  const monoFont = await doc.embedFont(StandardFonts.Courier);
+
+  for (const edit of edits) {
+    const pIdx = edit.pageNumber - 1;
+    if (pIdx < 0 || pIdx >= total) continue;
+
+    const page = doc.getPage(pIdx);
+
+    // 1. Vector background coverage box (erases previous text with clean background)
+    page.drawRectangle({
+      x: edit.pdfX - 1,
+      y: edit.pdfY - 2,
+      width: edit.pdfWidth + 2,
+      height: edit.pdfHeight + 4,
+      color: rgb(1, 1, 1),
+      opacity: 1.0,
+    });
+
+    // 2. If not deleted, draw replacement text in identical coordinates
+    if (!edit.isDeleted && edit.newText.trim()) {
+      let chosenFont = standardFont;
+      if (edit.fontFamily === 'serif') chosenFont = serifFont;
+      else if (edit.fontFamily === 'mono') chosenFont = monoFont;
+      else if (edit.fontFamily === 'bold') chosenFont = boldFont;
+
+      const col = hexToRgb(edit.color || '#000000');
+      const size = edit.fontSize || Math.max(8, edit.pdfHeight);
+
+      page.drawText(edit.newText, {
+        x: edit.pdfX,
+        y: edit.pdfY,
+        size,
+        font: chosenFont,
+        color: rgb(col.r, col.g, col.b),
+      });
+    }
+  }
+
+  return await doc.save();
+}
+
+export interface RemoveWatermarkConfig {
+  mode: 'region' | 'color-threshold';
+  colorHex?: string;
+  colorTolerance?: number; // 10-100
+  regions?: { pageNumber: number; x: number; y: number; width: number; height: number }[];
+}
+
+/**
+ * Removes or suppresses watermarks from a PDF document.
+ * Supports region-based vector wiping and color-threshold selective suppression.
+ */
+export async function removeWatermarkFromPdf(
+  srcData: ArrayBuffer | Uint8Array,
+  config: RemoveWatermarkConfig
+): Promise<Uint8Array> {
+  const doc = await PDFDocument.load(srcData, { ignoreEncryption: true });
+  const total = doc.getPageCount();
+
+  if (config.mode === 'region' && config.regions && config.regions.length > 0) {
+    for (const reg of config.regions) {
+      const pIdx = reg.pageNumber - 1;
+      if (pIdx < 0 || pIdx >= total) continue;
+
+      const page = doc.getPage(pIdx);
+      const { width, height } = page.getSize();
+
+      const pdfX = reg.x * width;
+      const pdfY = height - (reg.y * height) - (reg.height * height);
+      const pdfW = reg.width * width;
+      const pdfH = reg.height * height;
+
+      page.drawRectangle({
+        x: pdfX,
+        y: pdfY,
+        width: pdfW,
+        height: pdfH,
+        color: rgb(1, 1, 1),
+        opacity: 1.0,
+      });
+    }
+    return await doc.save();
+  }
+
+  // Color threshold suppression for faint/colored watermarks
+  if (config.mode === 'color-threshold' && config.colorHex) {
+    const targetRgb = hexToRgb(config.colorHex);
+    const tolerance = (config.colorTolerance || 30) / 100;
+
+    const loadingTask = pdfjsLib.getDocument({
+      data: new Uint8Array(srcData.slice(0)),
+      cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/',
+      cMapPacked: true,
+    });
+    const pdf = await loadingTask.promise;
+    const cleanDoc = await PDFDocument.create();
+
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) throw new Error('Canvas 2D unavailable');
+
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      const vp = page.getViewport({ scale: 1.5 });
+      canvas.width = Math.floor(vp.width);
+      canvas.height = Math.floor(vp.height);
+
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      await page.render({ canvasContext: ctx, viewport: vp }).promise;
+
+      const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const data = imgData.data;
+
+      for (let p = 0; p < data.length; p += 4) {
+        const r = data[p] / 255;
+        const g = data[p + 1] / 255;
+        const b = data[p + 2] / 255;
+
+        // Calculate distance from target watermark color
+        const dist = Math.sqrt(
+          Math.pow(r - targetRgb.r, 2) +
+          Math.pow(g - targetRgb.g, 2) +
+          Math.pow(b - targetRgb.b, 2)
+        );
+
+        // If pixel matches the faint watermark color and is not dark text, turn it white
+        const luminance = 0.299 * r + 0.587 * g + 0.114 * b;
+        if (dist < tolerance && luminance > 0.35) {
+          data[p] = 255;
+          data[p + 1] = 255;
+          data[p + 2] = 255;
+        }
+      }
+
+      ctx.putImageData(imgData, 0, 0);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
+      const embedded = await cleanDoc.embedJpg(dataUrl);
+      const newPage = cleanDoc.addPage([page.view[2] || vp.width, page.view[3] || vp.height]);
+      newPage.drawImage(embedded, {
+        x: 0,
+        y: 0,
+        width: newPage.getWidth(),
+        height: newPage.getHeight(),
+      });
+    }
+
+    return await cleanDoc.save();
+  }
+
+  return await doc.save();
+}

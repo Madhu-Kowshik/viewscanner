@@ -22,6 +22,7 @@ import {
   FormInput,
   Wrench,
   Workflow,
+  Sparkles,
 } from 'lucide-react';
 import { usePdf } from '../../context/PdfContext';
 import { formatBytes } from '../../lib/utils';
@@ -45,6 +46,7 @@ export const WorkspaceSidebar: React.FC = () => {
       tools: [
         { id: 'editor', label: 'Edit & Annotate', path: '/editor', icon: Edit3 },
         { id: 'scanned-editor', label: 'Scanned Text Editor', path: '/scanned-editor', icon: Type },
+        { id: 'image-editor', label: 'Image Studio & Text', path: '/image-editor', icon: Sparkles },
         { id: 'forms', label: 'Fill & Build Forms', path: '/forms', icon: FormInput },
         { id: 'sign', label: 'Sign Document', path: '/sign', icon: PenTool },
       ],

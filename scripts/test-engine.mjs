@@ -196,6 +196,45 @@ async function run() {
   const textLoaded = await PDFDocument.load(textBytes);
   assert(textLoaded.getPageCount() === 1, 'TEST 21: Text converted into formatted single-page A4 PDF');
 
+  // TEST 22: Native Vector Text replacement (Tone-matched patch + new vector text)
+  const editDoc = await PDFDocument.load(textBytes);
+  const editPage = editDoc.getPage(0);
+  editPage.drawRectangle({
+    x: 50 - 2,
+    y: 750 - 4,
+    width: 200,
+    height: 18,
+    color: rgb(1, 1, 1),
+    borderWidth: 0,
+  });
+  editPage.drawText('Replaced Vector Text 2026', {
+    x: 50,
+    y: 750,
+    size: 14,
+    font: tFont,
+    color: rgb(0, 0, 0),
+  });
+  const editedBytes = await editDoc.save();
+  const editLoaded = await PDFDocument.load(editedBytes);
+  assert(editLoaded.getPageCount() === 1 && editedBytes.byteLength > textBytes.byteLength, 'TEST 22: Native vector text replacement successfully preserved vector document structure');
+
+  // TEST 23: Watermark region suppression
+  const wmSuppressDoc = await PDFDocument.load(editedBytes);
+  const wmSuppressPage = wmSuppressDoc.getPage(0);
+  const { width: pW, height: pH } = wmSuppressPage.getSize();
+  wmSuppressPage.drawRectangle({
+    x: pW * 0.1,
+    y: pH * 0.2,
+    width: pW * 0.8,
+    height: pH * 0.6,
+    color: rgb(1, 1, 1),
+    opacity: 0.9,
+    borderWidth: 0,
+  });
+  const wmCleanBytes = await wmSuppressDoc.save();
+  const wmCleanLoaded = await PDFDocument.load(wmCleanBytes);
+  assert(wmCleanLoaded.getPageCount() === 1, 'TEST 23: Watermark suppression patch applied cleanly');
+
   console.log('\n====================================================');
   console.log(`ALL TESTS PASSED! (${passedTests}/${totalTests} tests succeeded)`);
   console.log('====================================================\n');

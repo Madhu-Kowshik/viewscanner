@@ -25,6 +25,7 @@ import {
   FormInput,
   Wrench,
   Workflow,
+  Sparkles,
 } from 'lucide-react';
 import { usePdf } from '../../context/PdfContext';
 
@@ -191,6 +192,15 @@ export const ALL_TOOLS: ToolIntent[] = [
     path: '/scanned-editor',
     icon: Type,
     keywords: ['scanned', 'edit scanned', 'ocr edit', 'replace text', 'scanned pdf', 'paper edit', 'typo'],
+  },
+  {
+    id: 'image-editor',
+    title: 'Image Studio & Text Editor',
+    category: 'Studio',
+    description: 'CamScanner-grade image filters, crop/rotate, and detect & replace text in images',
+    path: '/image-editor',
+    icon: Sparkles,
+    keywords: ['image', 'photo', 'jpeg', 'jpg', 'png', 'crop', 'filter', 'bleach', 'edit image text', 'replace text in picture'],
   },
   {
     id: 'forms',

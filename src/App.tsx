@@ -43,6 +43,7 @@ export const App: React.FC = () => {
                 <Route path="/compare" element={<WorkspacePage initialTool="compare" />} />
                 <Route path="/batch" element={<WorkspacePage initialTool="batch" />} />
                 <Route path="/scanned-editor" element={<WorkspacePage initialTool="scanned-editor" />} />
+                <Route path="/image-editor" element={<WorkspacePage initialTool="image-editor" />} />
                 <Route path="/forms" element={<WorkspacePage initialTool="forms" />} />
                 <Route path="/repair" element={<WorkspacePage initialTool="repair" />} />
                 <Route path="/workflows" element={<WorkspacePage initialTool="workflows" />} />

@@ -128,6 +128,14 @@ export const ToolsPage: React.FC = () => {
           badge: 'Breakthrough',
         },
         {
+          id: 'image-editor-tool',
+          name: 'Image Studio & Text Replacement',
+          desc: 'CamScanner bleach, B&W filters, crop/rotate, and neural OCR text replacement inside images.',
+          icon: Sparkles,
+          path: '/image-editor',
+          badge: 'Studio',
+        },
+        {
           id: 'forms-tool',
           name: 'Fill & Build AcroForms',
           desc: 'Detect and fill interactive form fields, add fillable text inputs/checkboxes, and flatten.',
@@ -153,10 +161,11 @@ export const ToolsPage: React.FC = () => {
         },
         {
           id: 'watermark-tool',
-          name: 'Watermarks & Bates Numbers',
-          desc: 'Add diagonal stamps, confidential watermarks, and legal Bates numbering.',
+          name: 'Watermarks & Stamp Removal',
+          desc: 'Add custom stamps, Bates numbers, or remove watermarks with color-selective suppression.',
           icon: Stamp,
           path: '/watermark',
+          badge: 'Add & Erase',
         },
       ],
     },

@@ -18,8 +18,9 @@ export const FileDropzone: React.FC<FileDropzoneProps> = ({
   multiple = false,
   onFilesSelected,
   onFileSelected,
-  title = 'Drop your PDF here',
-  subtitle = 'or choose a file from your device',
+  accept = 'application/pdf,image/*,.pdf,.png,.jpg,.jpeg,.webp,.bmp,.txt',
+  title = 'Drop your PDF or document here',
+  subtitle = 'Supports PDF, JPG, PNG, WEBP, BMP, and TXT files',
   className,
 }) => {
   const { currentFile, processing, loadFile, loadSampleDoc, clearCurrentFile } = usePdf();
@@ -44,10 +45,7 @@ export const FileDropzone: React.FC<FileDropzoneProps> = ({
     setIsDragOver(false);
 
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      const files = Array.from(e.dataTransfer.files).filter(
-        (f) => f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf')
-      );
-
+      const files = Array.from(e.dataTransfer.files);
       if (files.length === 0) {
         return;
       }
@@ -86,12 +84,12 @@ export const FileDropzone: React.FC<FileDropzoneProps> = ({
       <input
         ref={fileInputRef}
         type="file"
-        accept="application/pdf"
+        accept={accept}
         multiple={multiple}
         onChange={handleFileInputChange}
         className="hidden"
         id="pdf-file-upload-input"
-        aria-label="Upload PDF file"
+        aria-label="Upload document file"
       />
 
       {/* Error state alert if present */}

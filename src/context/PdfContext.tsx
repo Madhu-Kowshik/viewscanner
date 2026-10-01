@@ -236,7 +236,28 @@ export const PdfProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (fileInput instanceof File) {
           fileName = sanitizeFileName(fileInput.name);
           fileSize = fileInput.size;
-          buffer = await fileInput.arrayBuffer();
+          if (fileInput.type.startsWith('image/') || /\.(jpe?g|png|webp|bmp|gif)$/i.test(fileInput.name)) {
+            setProcessing({ status: 'reading', message: 'Ingesting image into PDF workspace...' });
+            const dataUrl = await new Promise<string>((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onload = () => resolve(reader.result as string);
+              reader.onerror = reject;
+              reader.readAsDataURL(fileInput);
+            });
+            const pdfBytes = await engineConvertImages([{ dataUrl, name: fileInput.name }]);
+            buffer = pdfBytes.buffer.slice(pdfBytes.byteOffset, pdfBytes.byteOffset + pdfBytes.byteLength) as ArrayBuffer;
+            fileName = `${fileName.replace(/\.[^.]+$/, '')}.pdf`;
+            fileSize = buffer.byteLength;
+          } else if (fileInput.type === 'text/plain' || /\.txt$/i.test(fileInput.name)) {
+            setProcessing({ status: 'reading', message: 'Converting text document to PDF...' });
+            const text = await fileInput.text();
+            const pdfBytes = await engineConvertText(text, fileName);
+            buffer = pdfBytes.buffer.slice(pdfBytes.byteOffset, pdfBytes.byteOffset + pdfBytes.byteLength) as ArrayBuffer;
+            fileName = `${fileName.replace(/\.[^.]+$/, '')}.pdf`;
+            fileSize = buffer.byteLength;
+          } else {
+            buffer = await fileInput.arrayBuffer();
+          }
         } else {
           fileName = sanitizeFileName(fileInput.name);
           buffer = fileInput.data;

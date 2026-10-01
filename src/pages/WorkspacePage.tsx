@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { WorkspaceSidebar } from '../components/layout/WorkspaceSidebar';
 import { MobileTabBar } from '../components/layout/MobileTabBar';
@@ -22,10 +22,11 @@ import { ScannedTextEditor } from '../components/scanned-editor/ScannedTextEdito
 import { FormWorkspace } from '../components/forms/FormWorkspace';
 import { PdfRepairWorkspace } from '../components/repair/PdfRepairWorkspace';
 import { WorkflowsWorkspace } from '../components/workflows/WorkflowsWorkspace';
+import { ImageEditorWorkspace } from '../components/image-editor/ImageEditorWorkspace';
 import { ResultModal } from '../components/common/ResultModal';
 import { ProcessingOverlay } from '../components/common/ProcessingOverlay';
 import { Button } from '../components/ui/Button';
-import { Sparkles } from 'lucide-react';
+import { Sparkles, ScanText, Type, X, FileSearch } from 'lucide-react';
 import { formatBytes } from '../lib/utils';
 import { usePdf } from '../context/PdfContext';
 
@@ -36,7 +37,8 @@ export interface WorkspacePageProps {
 export const WorkspacePage: React.FC<WorkspacePageProps> = ({ initialTool = 'organize' }) => {
   const location = useLocation();
   const navigate = useNavigate();
-  const { currentFile, savedSession, resumeSavedSession, dismissSavedSession } = usePdf();
+  const { currentFile, healthReport, savedSession, resumeSavedSession, dismissSavedSession } = usePdf();
+  const [dismissedTipFileId, setDismissedTipFileId] = useState<string | null>(null);
 
   // Determine active tool from current path
   const path = location.pathname;
@@ -58,6 +60,7 @@ export const WorkspacePage: React.FC<WorkspacePageProps> = ({ initialTool = 'org
   else if (path.includes('/compare')) activeTool = 'compare';
   else if (path.includes('/batch')) activeTool = 'batch';
   else if (path.includes('/scanned-editor')) activeTool = 'scanned-editor';
+  else if (path.includes('/image-editor')) activeTool = 'image-editor';
   else if (path.includes('/forms')) activeTool = 'forms';
   else if (path.includes('/repair')) activeTool = 'repair';
   else if (path.includes('/workflows')) activeTool = 'workflows';
@@ -102,6 +105,74 @@ export const WorkspacePage: React.FC<WorkspacePageProps> = ({ initialTool = 'org
             </div>
           )}
 
+          {/* Smart Document Intelligence Banner */}
+          {currentFile && healthReport && dismissedTipFileId !== currentFile.id && (
+            <>
+              {healthReport.isLikelyScanned && activeTool !== 'scanned-editor' && activeTool !== 'ocr' && (
+                <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50/90 p-4 dark:border-amber-900/60 dark:bg-amber-950/40 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs animate-in fade-in slide-in-from-top-2">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 rounded-xl bg-amber-600 text-white shrink-0">
+                      <ScanText className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold text-slate-900 dark:text-white flex items-center gap-1.5">
+                        <span>📸 Scanned Document Detected</span>
+                      </p>
+                      <p className="text-xs text-slate-600 dark:text-slate-400">
+                        This PDF contains page scans with little native digital text. Use Scanned Text Editor to modify text in-place or Neural OCR to extract searchable text.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
+                    <Button variant="primary" size="sm" onClick={() => navigate('/scanned-editor')}>
+                      Edit Scanned Text
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={() => navigate('/ocr')}>
+                      Run OCR
+                    </Button>
+                    <button
+                      onClick={() => setDismissedTipFileId(currentFile.id)}
+                      className="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
+                      title="Dismiss suggestion"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {!healthReport.isLikelyScanned && (healthReport.estimatedTextChars ?? 0) > 40 && activeTool === 'viewer' && (
+                <div className="mb-6 rounded-2xl border border-sky-200 bg-sky-50/90 p-4 dark:border-sky-900/60 dark:bg-sky-950/40 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs animate-in fade-in slide-in-from-top-2">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 rounded-xl bg-sky-600 text-white shrink-0">
+                      <Type className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold text-slate-900 dark:text-white">
+                        📄 Selectable Vector Text PDF Detected
+                      </p>
+                      <p className="text-xs text-slate-600 dark:text-slate-400">
+                        This document contains native vector text. You can edit text directly in-place with zero rasterization blur.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
+                    <Button variant="primary" size="sm" onClick={() => navigate('/editor')}>
+                      Open Vector Text Editor
+                    </Button>
+                    <button
+                      onClick={() => setDismissedTipFileId(currentFile.id)}
+                      className="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
+                      title="Dismiss suggestion"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+
           {activeTool === 'organize' && <PageOrganizer />}
           {activeTool === 'viewer' && (
             <div className="h-full min-h-[600px] flex flex-col">
@@ -123,6 +194,7 @@ export const WorkspacePage: React.FC<WorkspacePageProps> = ({ initialTool = 'org
           {activeTool === 'compare' && <PdfCompare />}
           {activeTool === 'batch' && <BatchWorkspace />}
           {activeTool === 'scanned-editor' && <ScannedTextEditor />}
+          {activeTool === 'image-editor' && <ImageEditorWorkspace />}
           {activeTool === 'forms' && <FormWorkspace />}
           {activeTool === 'repair' && <PdfRepairWorkspace />}
           {activeTool === 'workflows' && <WorkflowsWorkspace />}
