@@ -27,13 +27,37 @@ export function getBaseFileName(filename: string): string {
   return filename.replace(/\.[^/.]+$/, '');
 }
 
-export function downloadBlob(blob: Blob, fileName: string) {
+export async function downloadBlob(blob: Blob, fileName: string): Promise<void> {
+  // Check if Web Share API is available with file sharing support (typically iOS Safari & modern mobile browsers)
+  // This allows mobile users to save directly to iOS Files, AirDrop, Google Drive, or open in apps.
+  if (typeof navigator !== 'undefined' && typeof navigator.canShare === 'function') {
+    try {
+      const file = new File([blob], fileName, { type: blob.type || 'application/pdf' });
+      if (navigator.canShare({ files: [file] })) {
+        await navigator.share({
+          files: [file],
+          title: fileName,
+        });
+        return;
+      }
+    } catch (err: unknown) {
+      // AbortError indicates user dismissed share sheet; don't trigger unwanted fallback download
+      if (err instanceof Error && err.name === 'AbortError') {
+        return;
+      }
+      // Otherwise fall through to standard anchor download
+    }
+  }
+
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
+  a.style.display = 'none';
   a.href = url;
   a.download = fileName;
+  a.rel = 'noopener noreferrer';
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  // Keep URL valid for 30s on mobile devices where browser download takes time to initialize
+  setTimeout(() => URL.revokeObjectURL(url), 30000);
 }

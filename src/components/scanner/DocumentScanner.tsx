@@ -36,6 +36,7 @@ export const DocumentScanner: React.FC = () => {
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const nativeCameraInputRef = useRef<HTMLInputElement>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
 
   // Stop camera on unmount
@@ -50,16 +51,32 @@ export const DocumentScanner: React.FC = () => {
   const startCamera = async () => {
     try {
       setCameraActive(true);
+      if (!navigator.mediaDevices?.getUserMedia) {
+        setCameraActive(false);
+        nativeCameraInputRef.current?.click();
+        return;
+      }
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } },
       });
       mediaStreamRef.current = stream;
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
+        videoRef.current.muted = true;
+        try {
+          await videoRef.current.play();
+        } catch {
+          // ignore play error
+        }
       }
     } catch {
-      alert('Unable to access device camera. Please check camera permissions or upload an image file.');
       setCameraActive(false);
+      // Fallback directly to native device camera capture
+      if (nativeCameraInputRef.current) {
+        nativeCameraInputRef.current.click();
+      } else {
+        alert('Unable to access device camera. Please check camera permissions or upload an image file.');
+      }
     }
   };
 
@@ -243,6 +260,14 @@ export const DocumentScanner: React.FC = () => {
         onChange={handleFileUpload}
         className="hidden"
       />
+      <input
+        ref={nativeCameraInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        onChange={handleFileUpload}
+        className="hidden"
+      />
 
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
@@ -287,6 +312,7 @@ export const DocumentScanner: React.FC = () => {
             ref={videoRef}
             autoPlay
             playsInline
+            muted
             className="rounded-xl max-h-[460px] w-full object-contain"
           />
 
@@ -323,6 +349,15 @@ export const DocumentScanner: React.FC = () => {
             <Button variant="primary" size="md" onClick={startCamera}>
               <Camera className="w-4 h-4 mr-1.5" />
               Start Camera
+            </Button>
+            <Button
+              variant="outline"
+              size="md"
+              onClick={() => nativeCameraInputRef.current?.click()}
+              className="sm:hidden"
+            >
+              <Camera className="w-4 h-4 mr-1.5" />
+              Phone Camera
             </Button>
             <Button variant="outline" size="md" onClick={() => fileInputRef.current?.click()}>
               <Upload className="w-4 h-4 mr-1.5" />

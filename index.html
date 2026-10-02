@@ -3,15 +3,136 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/pwa-192x192.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon-180x180.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon-180x180.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#4f46e5" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0f172a" media="(prefers-color-scheme: dark)" />
+
+    <!-- Apple Web App & Standalone Mode -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="OmniPDF" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="application-name" content="OmniPDF" />
+
     <title>OmniPDF — Browser-based PDF Workspace</title>
     <meta name="description" content="Edit, organize, merge, split, rotate, extract, and manage PDF documents directly in your browser. 100% private, client-side processing." />
+    
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+    <style>
+      /* Fallback Instant App Splash (Replaced immediately on React Mount) */
+      #app-splash {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        background-color: #0f172a;
+        color: #f8fafc;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        z-index: 99999;
+        user-select: none;
+      }
+      @media (prefers-color-scheme: light) {
+        #app-splash {
+          background-color: #f8fafc;
+          color: #0f172a;
+        }
+      }
+      .splash-logo-box {
+        width: 64px;
+        height: 64px;
+        background: linear-gradient(135deg, #4f46e5 0%, #6366f1 100%);
+        border-radius: 18px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 10px 25px -5px rgba(79, 70, 229, 0.4);
+        margin-bottom: 18px;
+        animation: splash-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+      }
+      .splash-logo-box svg {
+        width: 34px;
+        height: 34px;
+        stroke: #ffffff;
+        fill: none;
+        stroke-width: 2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+      .splash-title {
+        font-size: 22px;
+        font-weight: 700;
+        letter-spacing: -0.02em;
+        margin: 0 0 6px 0;
+      }
+      .splash-title span {
+        color: #6366f1;
+      }
+      .splash-sub {
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: #94a3b8;
+        margin: 0 0 24px 0;
+      }
+      .splash-loader-bar {
+        width: 140px;
+        height: 4px;
+        background: rgba(148, 163, 184, 0.2);
+        border-radius: 9999px;
+        overflow: hidden;
+        position: relative;
+      }
+      .splash-loader-bar::after {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        bottom: 0;
+        width: 40%;
+        background: #6366f1;
+        border-radius: 9999px;
+        animation: splash-indeterminate 1.4s ease-in-out infinite;
+      }
+      @keyframes splash-pulse {
+        0%, 100% { transform: scale(1); opacity: 1; }
+        50% { transform: scale(1.04); opacity: 0.92; }
+      }
+      @keyframes splash-indeterminate {
+        0% { left: -40%; width: 40%; }
+        50% { left: 30%; width: 60%; }
+        100% { left: 100%; width: 40%; }
+      }
+    </style>
   </head>
   <body class="bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100 min-h-screen">
-    <div id="root"></div>
+    <div id="root">
+      <!-- Instant PWA Splash Screen -->
+      <div id="app-splash" aria-hidden="true">
+        <div class="splash-logo-box">
+          <svg viewBox="0 0 24 24">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+            <polyline points="14 2 14 8 20 8"></polyline>
+            <line x1="16" y1="13" x2="8" y2="13"></line>
+            <line x1="16" y1="17" x2="8" y2="17"></line>
+            <polyline points="10 9 9 9 8 9"></polyline>
+          </svg>
+        </div>
+        <h1 class="splash-title">Omni<span>PDF</span></h1>
+        <p class="splash-sub">Universal Document Workspace</p>
+        <div class="splash-loader-bar"></div>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

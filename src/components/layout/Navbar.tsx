@@ -15,17 +15,22 @@ import {
   Undo2,
   Redo2,
   Search,
+  Download,
 } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import { usePdf } from '../../context/PdfContext';
 import { Button } from '../ui/Button';
 import { CommandPalette } from '../common/CommandPalette';
+import { usePwaInstall } from '../../hooks/usePwaInstall';
+import { PwaInstallPrompt } from '../common/PwaInstallPrompt';
 
 export const Navbar: React.FC = () => {
   const { actualTheme, setTheme } = useTheme();
   const { currentFile, loadSampleDoc, canUndo, canRedo, undo, redo } = usePdf();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [installModalOpen, setInstallModalOpen] = useState(false);
+  const { isInstallable, isInstalled, isIOS, install } = usePwaInstall();
   const navigate = useNavigate();
 
   // Listen for Ctrl+K or Cmd+K
@@ -129,6 +134,24 @@ export const Navbar: React.FC = () => {
               </div>
             )}
 
+            {/* PWA Install Button */}
+            {!isInstalled && (
+              <button
+                onClick={() => {
+                  if (isInstallable) {
+                    install();
+                  } else {
+                    setInstallModalOpen(true);
+                  }
+                }}
+                title={isInstallable ? 'Install OmniPDF App' : 'Install OmniPDF (Offline ready)'}
+                className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-brand-600 bg-brand-50 hover:bg-brand-100 dark:text-brand-300 dark:bg-brand-950/70 dark:hover:bg-brand-900/60 transition-colors border border-brand-200/80 dark:border-brand-800/80 shadow-xs"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span className="hidden xl:inline">Install App</span>
+              </button>
+            )}
+
             {/* Quick theme toggle */}
             <button
               onClick={toggleTheme}
@@ -207,6 +230,23 @@ export const Navbar: React.FC = () => {
             })}
 
             <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex flex-col gap-2">
+              {!isInstalled && (
+                <button
+                  onClick={() => {
+                    setMobileMenuOpen(false);
+                    if (isInstallable) {
+                      install();
+                    } else {
+                      setInstallModalOpen(true);
+                    }
+                  }}
+                  className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-sm font-semibold text-brand-600 bg-brand-50 hover:bg-brand-100 dark:text-brand-300 dark:bg-brand-950/60 dark:hover:bg-brand-900/60 border border-brand-200/80 dark:border-brand-800/80 w-full transition-colors"
+                >
+                  <Download className="h-4 w-4" />
+                  Install OmniPDF App
+                </button>
+              )}
+
               <Button
                 variant="primary"
                 size="md"
@@ -242,6 +282,16 @@ export const Navbar: React.FC = () => {
       <CommandPalette
         isOpen={commandPaletteOpen}
         onClose={() => setCommandPaletteOpen(false)}
+      />
+
+      {/* PWA Install Prompt Modal */}
+      <PwaInstallPrompt
+        isOpen={installModalOpen}
+        onClose={() => setInstallModalOpen(false)}
+        isInstallable={isInstallable}
+        isInstalled={isInstalled}
+        isIOS={isIOS}
+        onInstall={install}
       />
     </>
   );
