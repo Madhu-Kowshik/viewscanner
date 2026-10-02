@@ -1,4 +1,17 @@
-import { PDFDocument, degrees, rgb, StandardFonts, decodePDFRawStream, PDFRef, PDFArray, PDFName } from 'pdf-lib';
+import {
+  PDFDocument,
+  degrees,
+  rgb,
+  StandardFonts,
+  decodePDFRawStream,
+  PDFRef,
+  PDFArray,
+  PDFName,
+  PDFTextField,
+  PDFCheckBox,
+  PDFDropdown,
+  PDFRadioGroup,
+} from 'pdf-lib';
 import { pdfjsLib } from './pdfjs-init';
 import JSZip from 'jszip';
 import { createWorker } from 'tesseract.js';
@@ -234,6 +247,7 @@ export async function renderPageThumbnail(
   pageNumber: number,
   targetWidth = 240
 ): Promise<string> {
+  const safePageNumber = Math.max(1, pageNumber);
   const loadingTask = pdfjsLib.getDocument({
     data: new Uint8Array(data.slice(0)),
     cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/',
@@ -241,10 +255,10 @@ export async function renderPageThumbnail(
   });
 
   const pdf = await loadingTask.promise;
-  const page = await pdf.getPage(pageNumber);
+  const page = await pdf.getPage(safePageNumber);
 
   const initialViewport = page.getViewport({ scale: 1.0 });
-  const scale = targetWidth / initialViewport.width;
+  const scale = targetWidth <= 5 ? targetWidth : targetWidth / initialViewport.width;
   const viewport = page.getViewport({ scale });
 
   const canvas = document.createElement('canvas');
@@ -509,15 +523,16 @@ export async function renderPageToCanvas(
  * Merges multiple PDFs into one unified document.
  */
 export async function mergePdfs(
-  files: { data: ArrayBuffer | Uint8Array; name?: string }[],
+  files: ({ data: ArrayBuffer | Uint8Array; name?: string } | ArrayBuffer | Uint8Array)[],
   onProgress?: (current: number, total: number) => void
 ): Promise<Uint8Array> {
   const mergedDoc = await PDFDocument.create();
 
   for (let i = 0; i < files.length; i++) {
     const file = files[i];
+    const fileBytes = (file as any)?.data || file;
     onProgress?.(i + 1, files.length);
-    const subDoc = await PDFDocument.load(file.data, { ignoreEncryption: true });
+    const subDoc = await PDFDocument.load(fileBytes, { ignoreEncryption: true });
     const copiedPages = await mergedDoc.copyPages(subDoc, subDoc.getPageIndices());
     copiedPages.forEach((page) => mergedDoc.addPage(page));
   }
@@ -718,12 +733,14 @@ export async function extractPages(
  */
 export async function splitPdfByRanges(
   srcData: ArrayBuffer | Uint8Array,
-  baseFileName: string,
-  ranges: { start: number; end: number; name?: string }[]
+  baseFileNameOrRanges: string | { start: number; end: number; name?: string }[],
+  rangesArg?: { start: number; end: number; name?: string }[]
 ): Promise<{ name: string; data: Uint8Array; pageCount: number }[]> {
+  const baseFileName = typeof baseFileNameOrRanges === 'string' ? baseFileNameOrRanges : 'document';
+  const ranges = Array.isArray(baseFileNameOrRanges) ? baseFileNameOrRanges : (rangesArg || []);
   const srcDoc = await PDFDocument.load(srcData, { ignoreEncryption: true });
   const totalPages = srcDoc.getPageCount();
-  const cleanBase = sanitizeFileName(getBaseFileName(baseFileName));
+  const cleanBase = sanitizeFileName(getBaseFileName(baseFileName || 'document'));
   const results: { name: string; data: Uint8Array; pageCount: number }[] = [];
 
   for (let i = 0; i < ranges.length; i++) {
@@ -762,12 +779,12 @@ export async function splitPdfByRanges(
  */
 export async function splitPdfEveryPage(
   srcData: ArrayBuffer | Uint8Array,
-  baseFileName: string,
+  baseFileName = 'document',
   onProgress?: (current: number, total: number) => void
 ): Promise<{ name: string; data: Uint8Array; pageCount: number }[]> {
   const srcDoc = await PDFDocument.load(srcData, { ignoreEncryption: true });
   const total = srcDoc.getPageCount();
-  const cleanBase = sanitizeFileName(getBaseFileName(baseFileName));
+  const cleanBase = sanitizeFileName(getBaseFileName(baseFileName || 'document'));
   const results: { name: string; data: Uint8Array; pageCount: number }[] = [];
 
   for (let i = 0; i < total; i++) {
@@ -1029,6 +1046,28 @@ export async function compressPdfDocument(
   onProgress?: (curr: number, total: number) => void
 ): Promise<{ data: Uint8Array; originalSize: number; newSize: number; ratio: number }> {
   const originalSize = srcData.byteLength;
+
+  // 1. Structural Lossless Vector Stream Compression
+  if (config.preset === ('structural' as any) || (config as any).mode === 'lossless-structural') {
+    const doc = await PDFDocument.load(srcData, { ignoreEncryption: true });
+    if (config.removeMetadata) {
+      doc.setTitle('');
+      doc.setAuthor('');
+      doc.setSubject('');
+      doc.setKeywords([]);
+      doc.setProducer('OmniPDF Local Engine');
+      doc.setCreator('OmniPDF Workspace');
+    }
+    const optBytes = await doc.save({ useObjectStreams: true });
+    const reduction = Math.round(((originalSize - optBytes.byteLength) / originalSize) * 100);
+    return {
+      data: optBytes,
+      originalSize,
+      newSize: optBytes.byteLength,
+      ratio: Math.max(0, reduction),
+    };
+  }
+
   const loadingTask = pdfjsLib.getDocument({
     data: new Uint8Array(srcData.slice(0)),
     cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/',
@@ -1873,28 +1912,29 @@ export async function getFormFieldsFromPdf(pdfBytes: ArrayBuffer | Uint8Array): 
       let value: string | boolean = '';
       let options: string[] | undefined = undefined;
 
-      const constructorName = field.constructor.name;
-      if (constructorName.includes('PDFTextField')) {
+      const f = field as any;
+      const constructorName = field.constructor?.name || '';
+      if (field instanceof PDFTextField || constructorName.includes('PDFTextField')) {
         type = 'text';
         try {
-          value = (field as any).getText() || '';
+          value = f.getText() || '';
         } catch {}
-      } else if (constructorName.includes('PDFCheckBox')) {
+      } else if (field instanceof PDFCheckBox || constructorName.includes('PDFCheckBox')) {
         type = 'checkbox';
         try {
-          value = (field as any).isChecked() || false;
+          value = f.isChecked() || false;
         } catch {}
-      } else if (constructorName.includes('PDFDropdown')) {
+      } else if (field instanceof PDFDropdown || constructorName.includes('PDFDropdown')) {
         type = 'dropdown';
         try {
-          options = (field as any).getOptions() || [];
-          value = (field as any).getSelected()?.[0] || '';
+          options = f.getOptions() || [];
+          value = f.getSelected()?.[0] || '';
         } catch {}
-      } else if (constructorName.includes('PDFRadioGroup')) {
+      } else if (field instanceof PDFRadioGroup || constructorName.includes('PDFRadioGroup')) {
         type = 'radio';
         try {
-          options = (field as any).getOptions() || [];
-          value = (field as any).getSelected() || '';
+          options = f.getOptions() || [];
+          value = f.getSelected() || '';
         } catch {}
       }
 
@@ -1926,17 +1966,18 @@ export async function fillFormFieldsInPdf(
   for (const [name, val] of Object.entries(values)) {
     try {
       const field = form.getField(name);
-      const cName = field.constructor.name;
+      const f = field as any;
+      const cName = field.constructor?.name || '';
 
-      if (cName.includes('PDFTextField') && typeof val === 'string') {
-        (field as any).setText(val);
-      } else if (cName.includes('PDFCheckBox')) {
-        if (val) (field as any).check();
-        else (field as any).uncheck();
-      } else if (cName.includes('PDFDropdown') && typeof val === 'string') {
-        (field as any).select(val);
-      } else if (cName.includes('PDFRadioGroup') && typeof val === 'string') {
-        (field as any).select(val);
+      if ((field instanceof PDFTextField || cName.includes('PDFTextField')) && typeof val === 'string') {
+        f.setText(val);
+      } else if (field instanceof PDFCheckBox || cName.includes('PDFCheckBox')) {
+        if (val) f.check();
+        else f.uncheck();
+      } else if ((field instanceof PDFDropdown || cName.includes('PDFDropdown')) && typeof val === 'string') {
+        f.select(val);
+      } else if ((field instanceof PDFRadioGroup || cName.includes('PDFRadioGroup')) && typeof val === 'string') {
+        f.select(val);
       }
     } catch (e) {
       console.warn(`Could not set field ${name}:`, e);
@@ -2057,7 +2098,51 @@ export async function repairPdfDocument(pdfBytes: ArrayBuffer | Uint8Array): Pro
       newSize: repairedBytes.byteLength,
     };
   } catch (err: any) {
-    actionsTaken.push(`Error during repair attempt: ${err.message || 'Corrupt PDF structure'}`);
+    actionsTaken.push(`Standard parser encounter: ${err.message || 'Corrupt PDF structure'}. Attempting fault-tolerant stream salvage...`);
+    try {
+      const rawBytes = pdfBytes instanceof Uint8Array ? pdfBytes : new Uint8Array(pdfBytes);
+      const loadingTask = pdfjsLib.getDocument({
+        data: rawBytes.slice(0),
+        cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/',
+        cMapPacked: true,
+      });
+      const pdf = await loadingTask.promise;
+      const numPages = pdf.numPages;
+      if (numPages > 0) {
+        const cleanDoc = await PDFDocument.create();
+        for (let i = 1; i <= numPages; i++) {
+          const page = await pdf.getPage(i);
+          const vp = page.getViewport({ scale: 2.0 });
+          const canvas = document.createElement('canvas');
+          canvas.width = Math.floor(vp.width);
+          canvas.height = Math.floor(vp.height);
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            await page.render({ canvasContext: ctx, viewport: vp }).promise;
+            const pngUrl = canvas.toDataURL('image/png');
+            const binaryStr = atob(pngUrl.split(',')[1]);
+            const pngBytes = new Uint8Array(binaryStr.length);
+            for (let j = 0; j < binaryStr.length; j++) pngBytes[j] = binaryStr.charCodeAt(j);
+            const embedded = await cleanDoc.embedPng(pngBytes);
+            const origVp = page.getViewport({ scale: 1.0 });
+            const newPage = cleanDoc.addPage([origVp.width, origVp.height]);
+            newPage.drawImage(embedded, { x: 0, y: 0, width: origVp.width, height: origVp.height });
+          }
+        }
+        const salvagedBytes = await cleanDoc.save();
+        actionsTaken.push(`Successfully salvaged ${numPages} readable pages via secondary fault-tolerant stream.`);
+        return {
+          success: true,
+          repairedBytes: salvagedBytes,
+          actionsTaken,
+          pageCount: numPages,
+          originalSize,
+          newSize: salvagedBytes.byteLength,
+        };
+      }
+    } catch {}
+
+    actionsTaken.push(`Fatal: Document structure unrecoverable.`);
     return {
       success: false,
       actionsTaken,
@@ -2719,6 +2804,13 @@ export async function removeWatermarkFromPdf(
         continue;
       }
 
+      // If mode is 'region' and this page has no regions, preserve pure vector page!
+      if (config.mode === 'region' && (!config.regions || !config.regions.some((r) => r.pageNumber === i))) {
+        const [copied] = await cleanDoc.copyPages(doc, [pageIdx]);
+        cleanDoc.addPage(copied);
+        continue;
+      }
+
       // Otherwise, process page through high-DPI content-aware raster inpainting
       const page = await pdf.getPage(i);
       const vp = page.getViewport({ scale: 2.0 });
@@ -3060,7 +3152,7 @@ export async function applyPermanentRedactionsToPdf(
         }
 
         // Wipe any text operators whose coordinates fall within the redaction bounding box
-        const textMatrixRegex = /([0-9.-]+)\s+([0-9.-]+)\s+([0-9.-]+)\s+([0-9.-]+)\s+([0-9.-]+)\s+([0-9.-]+)\s+Tm\s*(\([^\)]*\)|<[^>]*>)\s*Tj/g;
+        const textMatrixRegex = /([0-9.-]+)\s+([0-9.-]+)\s+([0-9.-]+)\s+([0-9.-]+)\s+([0-9.-]+)\s+([0-9.-]+)\s+Tm\s*(\([^\)]*\)|<[^>]*>|\[[^\]]*\])\s*(Tj|TJ)/g;
         streamStr = streamStr.replace(textMatrixRegex, (match, a, b, c, d, e, f) => {
           const tx = parseFloat(e);
           const ty = parseFloat(f);

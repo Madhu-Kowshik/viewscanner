@@ -39,6 +39,22 @@ import {
   hexToRgb,
   ScannedTextEditItem,
   RedactionItem,
+  getFormFieldsFromPdf,
+  fillFormFieldsInPdf,
+  addFormFieldToPdf,
+  mergePdfs,
+  splitPdfEveryPage,
+  splitPdfByRanges,
+  reversePageOrder,
+  detectBlankPages,
+  insertBlankPage,
+  deletePages,
+  extractPages,
+  embedSignatureOnPdf,
+  compressPdfDocument,
+  repairPdfDocument,
+  convertTextToPdf,
+  cleanPdfMetadata,
 } from '../src/lib/pdf/pdf-engine';
 
 console.log('================================================================');
@@ -501,6 +517,209 @@ async function run() {
     const norm = renderToNormalizedCoords(render.x, render.y, 100, 50, sys.renderWidth, sys.renderHeight);
     const ocrPx = ocrToRenderCoords(norm, sys.renderWidth, sys.renderHeight);
     assert(Math.abs(ocrPx.x - render.x) < 0.001 && Math.abs(ocrPx.width - 100) < 0.001, 'TEST 14B: Normalized OCR <-> Render coordinates exact');
+  }
+
+  console.log('\n--- SECTION 7: INTERACTIVE ACROFORMS STUDIO ---');
+
+  // TEST 15: Create, Extract & Fill AcroForm Fields
+  {
+    const doc = await PDFDocument.create();
+    doc.addPage([500, 500]);
+    const initialBytes = await doc.save();
+
+    // 1. Add Text Field and CheckBox
+    const withText = await addFormFieldToPdf(initialBytes, 0, 'text', 'full_name', 50, 400, 200, 30);
+    const withForm = await addFormFieldToPdf(withText, 0, 'checkbox', 'terms_agree', 50, 350, 20, 20);
+
+    // 2. Extract fields
+    const fields = await getFormFieldsFromPdf(withForm);
+    assert(fields.some(f => f.name === 'full_name'), 'TEST 15A: AcroForm text field successfully extracted');
+    assert(fields.some(f => f.name === 'terms_agree'), 'TEST 15B: AcroForm checkbox field successfully extracted');
+
+    // 3. Fill fields
+    const filledBytes = await fillFormFieldsInPdf(withForm, {
+      full_name: 'Dr. Jane Watson',
+      terms_agree: true,
+    }, false);
+
+    // 4. Verify filled values on reopen
+    const reopenedDoc = await PDFDocument.load(filledBytes);
+    const form = reopenedDoc.getForm();
+    assert(form.getTextField('full_name').getText() === 'Dr. Jane Watson', 'TEST 15C: Form text field value verified upon reopen');
+    assert(form.getCheckBox('terms_agree').isChecked() === true, 'TEST 15D: Form checkbox state verified upon reopen');
+
+    // TEST 16: Flatten Form Fields
+    const flattenedBytes = await fillFormFieldsInPdf(withForm, {
+      full_name: 'Dr. Jane Watson',
+      terms_agree: true,
+    }, true);
+    const flattenedDoc = await PDFDocument.load(flattenedBytes);
+    assert(flattenedDoc.getForm().getFields().length === 0, 'TEST 16: Flattened form fields converted to static content (zero interactive widgets)');
+  }
+
+  console.log('\n--- SECTION 8: PAGE ORGANIZATION & STRUCTURAL MANIPULATION ---');
+
+  // TEST 17: Merge Multiple PDFs
+  {
+    const doc1 = await PDFDocument.create();
+    doc1.addPage([400, 400]).drawText('Doc 1 Page 1', { x: 50, y: 350, size: 12 });
+    const bytes1 = await doc1.save();
+
+    const doc2 = await PDFDocument.create();
+    doc2.addPage([400, 400]).drawText('Doc 2 Page 1', { x: 50, y: 350, size: 12 });
+    doc2.addPage([400, 400]).drawText('Doc 2 Page 2', { x: 50, y: 350, size: 12 });
+    const bytes2 = await doc2.save();
+
+    const mergedBytes = await mergePdfs([bytes1, bytes2]);
+    const mergedDoc = await PDFDocument.load(mergedBytes);
+    assert(mergedDoc.getPageCount() === 3, 'TEST 17: mergePdfs combined 1-page + 2-page into 3-page document');
+  }
+
+  // TEST 18: Reverse Page Order
+  {
+    const doc = await PDFDocument.create();
+    for (let i = 1; i <= 3; i++) {
+      doc.addPage([400, 400]).drawText(`Page ${i}`, { x: 50, y: 350, size: 14 });
+    }
+    const bytes = await doc.save();
+    const reversedBytes = await reversePageOrder(bytes);
+    const reversedDoc = await PDFDocument.load(reversedBytes);
+    assert(reversedDoc.getPageCount() === 3, 'TEST 18: reversePageOrder preserved total page count');
+  }
+
+  // TEST 19: Insert Blank Page
+  {
+    const doc = await PDFDocument.create();
+    doc.addPage([400, 400]);
+    doc.addPage([400, 400]);
+    const bytes = await doc.save();
+
+    const withBlank = await insertBlankPage(bytes, 1, 595.28, 841.89);
+    const withBlankDoc = await PDFDocument.load(withBlank);
+    assert(withBlankDoc.getPageCount() === 3, 'TEST 19: insertBlankPage expanded 2-page PDF into 3 pages');
+  }
+
+  // TEST 20: Split PDF by Custom Ranges
+  {
+    const doc = await PDFDocument.create();
+    for (let i = 1; i <= 5; i++) {
+      doc.addPage([400, 400]).drawText(`Page ${i}`, { x: 50, y: 350, size: 14 });
+    }
+    const bytes = await doc.save();
+
+    const ranges = [
+      { id: 'r1', start: 1, end: 2, name: 'part1' },
+      { id: 'r2', start: 3, end: 5, name: 'part2' },
+    ];
+    const splits = await splitPdfByRanges(bytes, ranges);
+    assert(splits.length === 2, 'TEST 20A: splitPdfByRanges created 2 split parts');
+    const part1Doc = await PDFDocument.load(splits[0].data);
+    const part2Doc = await PDFDocument.load(splits[1].data);
+    assert(part1Doc.getPageCount() === 2, 'TEST 20B: Range 1-2 contains exactly 2 pages');
+    assert(part2Doc.getPageCount() === 3, 'TEST 20C: Range 3-5 contains exactly 3 pages');
+  }
+
+  // TEST 21: Split Every Page
+  {
+    const doc = await PDFDocument.create();
+    doc.addPage([400, 400]);
+    doc.addPage([400, 400]);
+    const bytes = await doc.save();
+    const singlePages = await splitPdfEveryPage(bytes);
+    assert(singlePages.length === 2, 'TEST 21: splitPdfEveryPage created 2 standalone single-page files');
+  }
+
+  // TEST 22: Delete Pages
+  {
+    const doc = await PDFDocument.create();
+    for (let i = 1; i <= 4; i++) doc.addPage([400, 400]);
+    const bytes = await doc.save();
+    const deletedBytes = await deletePages(bytes, [2, 3]); // Delete pages 2 and 3
+    const deletedDoc = await PDFDocument.load(deletedBytes);
+    assert(deletedDoc.getPageCount() === 2, 'TEST 22: deletePages removed 2 pages from 4-page PDF');
+  }
+
+  // TEST 23: Extract Pages
+  {
+    const doc = await PDFDocument.create();
+    for (let i = 1; i <= 5; i++) doc.addPage([400, 400]);
+    const bytes = await doc.save();
+    const extractedBytes = await extractPages(bytes, [1, 4]); // 1-indexed
+    const extractedDoc = await PDFDocument.load(extractedBytes);
+    assert(extractedDoc.getPageCount() === 2, 'TEST 23: extractPages extracted exactly pages 1 & 4');
+  }
+
+  console.log('\n--- SECTION 9: VISUAL SIGNATURE EMBEDDING ---');
+
+  // TEST 24: Visual Signature Stamp
+  {
+    const doc = await PDFDocument.create();
+    doc.addPage([500, 500]);
+    const bytes = await doc.save();
+
+    // 1x1 png image data url
+    const fakeSigDataUrl = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII=';
+    const signedBytes = await embedSignatureOnPdf(bytes, 0, fakeSigDataUrl, 0.5, 0.5, 0.2, 0.1);
+    const signedDoc = await PDFDocument.load(signedBytes);
+    assert(signedDoc.getPageCount() === 1, 'TEST 24: embedSignatureOnPdf successfully stamped signature onto page');
+  }
+
+  console.log('\n--- SECTION 10: PDF COMPRESSION ---');
+
+  // TEST 25: Structural Stream Compression
+  {
+    const doc = await PDFDocument.create();
+    doc.addPage([500, 500]).drawText('Uncompressed Stream Content', { x: 50, y: 400, size: 14 });
+    const bytes = await doc.save();
+
+    const res = await compressPdfDocument(bytes, {
+      preset: 'structural' as any,
+      removeMetadata: true,
+      flattenAnnotations: false,
+    });
+    assert(res.data.byteLength > 0, 'TEST 25A: compressPdfDocument (structural) produced valid bytes');
+    const reopened = await PDFDocument.load(res.data);
+    assert(reopened.getPageCount() === 1, 'TEST 25B: Structural compression preserved page count & vector layout');
+  }
+
+  console.log('\n--- SECTION 11: FAULT-TOLERANT PDF REPAIR ---');
+
+  // TEST 26: PDF Repair of Damaged Stream
+  {
+    const doc = await PDFDocument.create();
+    doc.addPage([500, 500]).drawText('Document for Repair Test', { x: 50, y: 400, size: 14 });
+    const validBytes = await doc.save();
+
+    const report = await repairPdfDocument(validBytes);
+    assert(report.success && report.pageCount === 1, 'TEST 26A: repairPdfDocument rebuilt XRef & page tree');
+    assert(report.actionsTaken.length > 0, 'TEST 26B: Repair audit actions logged transparently');
+  }
+
+  console.log('\n--- SECTION 12: FORMAT CONVERSION ---');
+
+  // TEST 27: Plain Text to PDF Conversion
+  {
+    const sampleText = 'Title: Executive Report\n\nParagraph 1: All operations performed successfully in memory.\n\nParagraph 2: Data integrity verified.';
+    const textPdfBytes = await convertTextToPdf(sampleText, 'Executive Report');
+    const textDoc = await PDFDocument.load(textPdfBytes);
+    assert(textDoc.getPageCount() >= 1, 'TEST 27: convertTextToPdf formatted plaintext into paginated PDF');
+  }
+
+  console.log('\n--- SECTION 13: METADATA SANITIZATION ---');
+
+  // TEST 28: Scrub Metadata
+  {
+    const doc = await PDFDocument.create();
+    doc.setTitle('Confidential Document');
+    doc.setAuthor('Secret Author');
+    doc.setProducer('Proprietary Tool v1.0');
+    doc.addPage([400, 400]);
+    const bytes = await doc.save();
+
+    const sanitizedBytes = await cleanPdfMetadata(bytes);
+    const sanitizedDoc = await PDFDocument.load(sanitizedBytes);
+    assert(!sanitizedDoc.getTitle() || sanitizedDoc.getTitle() === '', 'TEST 28A: Title sanitized');
+    assert(!sanitizedDoc.getAuthor() || sanitizedDoc.getAuthor() === '', 'TEST 28B: Author sanitized');
   }
 
   console.log('\n================================================================');

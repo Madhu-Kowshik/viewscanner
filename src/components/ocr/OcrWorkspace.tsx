@@ -13,9 +13,9 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import { usePdf } from '../../context/PdfContext';
-import { FileDropzone } from '../common/FileDropzone';
 import { Button } from '../ui/Button';
-import { renderPageThumbnail, runOcrOnImageDataUrl } from '../../lib/pdf/pdf-engine';
+import { FileDropzone } from '../common/FileDropzone';
+import { renderPageAtScale, runOcrOnImageDataUrl } from '../../lib/pdf/pdf-engine';
 import { downloadBlob } from '../../lib/utils';
 
 export const OcrWorkspace: React.FC = () => {
@@ -71,7 +71,7 @@ export const OcrWorkspace: React.FC = () => {
         setOcrProgress(Math.round(((i + 0.2) / pageIndices.length) * 100));
 
         // Render page at 2.0x scale (144-150 DPI) for optimal OCR accuracy
-        const thumbUrl = await renderPageThumbnail(currentFile.data, pageIdx, 2.0);
+        const { dataUrl: thumbUrl } = await renderPageAtScale(currentFile.data, pageNum, 2.0, { format: 'image/png' });
 
         setStatusMessage(`Recognizing optical text on page ${pageNum}...`);
         const pageText = await runOcrOnImageDataUrl(thumbUrl, ocrLanguage);

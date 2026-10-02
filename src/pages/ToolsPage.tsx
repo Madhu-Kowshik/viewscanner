@@ -375,6 +375,7 @@ export const ToolsPage: React.FC = () => {
                 return (
                   <div
                     key={tool.id}
+                    data-tool-id={tool.id}
                     onClick={() => navigate(tool.path)}
                     className="group relative flex flex-col justify-between rounded-2xl border border-slate-200/80 bg-white p-5 shadow-xs transition-all hover:border-brand-500/50 hover:shadow-md dark:border-slate-800/80 dark:bg-slate-900 cursor-pointer"
                   >

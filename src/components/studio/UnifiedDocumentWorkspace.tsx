@@ -511,14 +511,14 @@ export const UnifiedDocumentWorkspace: React.FC<UnifiedDocumentWorkspaceProps> =
 
   const handleSelectOcrWord = (word: OcrWordItem) => {
     setSelectedOcrWord(word);
-    const existing = scannedEdits.find((e) => e.id === word.id);
+    const existing = scannedEdits.find((e) => e.pageNumber === currentPageIndex + 1 && e.id === word.id);
     setOcrReplacementText(existing ? existing.newText : word.text);
   };
 
   const commitInlineOcr = (w: OcrWordItem, newText: string) => {
     setInlineEditingOcrId(null);
     setScannedEdits((prev) => [
-      ...prev.filter((e) => e.id !== w.id),
+      ...prev.filter((e) => !(e.pageNumber === currentPageIndex + 1 && e.id === w.id)),
       {
         id: w.id,
         pageNumber: currentPageIndex + 1,
@@ -532,7 +532,7 @@ export const UnifiedDocumentWorkspace: React.FC<UnifiedDocumentWorkspaceProps> =
   const handleDeleteOcrWord = () => {
     if (!selectedOcrWord) return;
     setScannedEdits((prev) => [
-      ...prev.filter((e) => e.id !== selectedOcrWord.id),
+      ...prev.filter((e) => !(e.pageNumber === currentPageIndex + 1 && e.id === selectedOcrWord.id)),
       {
         id: selectedOcrWord.id,
         pageNumber: currentPageIndex + 1,
@@ -549,7 +549,7 @@ export const UnifiedDocumentWorkspace: React.FC<UnifiedDocumentWorkspaceProps> =
     if (!selectedOcrWord) return;
     const isDeleted = !ocrReplacementText.trim();
     setScannedEdits((prev) => [
-      ...prev.filter((e) => e.id !== selectedOcrWord.id),
+      ...prev.filter((e) => !(e.pageNumber === currentPageIndex + 1 && e.id === selectedOcrWord.id)),
       {
         id: selectedOcrWord.id,
         pageNumber: currentPageIndex + 1,
@@ -566,20 +566,15 @@ export const UnifiedDocumentWorkspace: React.FC<UnifiedDocumentWorkspaceProps> =
     if (!currentFile || scannedEdits.length === 0) return;
     try {
       setIsSavingScanned(true);
-      setStatusMessage('Reconstructing scanned page with content-aware background preservation...');
-      const editsWithPage: ScannedTextEditItem[] = scannedEdits.map((ed) => ({
-        ...ed,
-        pageNumber: currentPageIndex + 1,
-      }));
-      const updated = await reconstructScannedPageWithEdits(
+      setStatusMessage('Reconstructing scanned document across all edited pages...');
+      const updated = await reconstructScannedDocumentWithEdits(
         currentFile.data,
-        currentPageIndex + 1,
-        editsWithPage
+        scannedEdits
       );
       await updateActiveDocument(updated, 'Edit Scanned Text');
       setScannedEdits([]);
       setSelectedOcrWord(null);
-      setStatusMessage('Scanned page reconstructed successfully. Original text removed & local background preserved.');
+      setStatusMessage('Scanned pages reconstructed successfully with local background preservation.');
     } catch (err) {
       console.error('Scanned edit save error:', err);
       setStatusMessage('Error reconstructing scanned text.');
@@ -742,14 +737,9 @@ export const UnifiedDocumentWorkspace: React.FC<UnifiedDocumentWorkspaceProps> =
       // Automatically burn any pending scanned text edits first
       if (scannedEdits.length > 0) {
         setStatusMessage('Reconstructing scanned pages with local background preservation...');
-        const editsWithPage: ScannedTextEditItem[] = scannedEdits.map((ed) => ({
-          ...ed,
-          pageNumber: currentPageIndex + 1,
-        }));
-        activePdfData = await reconstructScannedPageWithEdits(
+        activePdfData = await reconstructScannedDocumentWithEdits(
           activePdfData,
-          currentPageIndex + 1,
-          editsWithPage
+          scannedEdits
         );
         await updateActiveDocument(activePdfData, 'Burn Scanned Edits for Export');
         setScannedEdits([]);

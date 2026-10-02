@@ -87,11 +87,16 @@ export const SignWorkspace: React.FC = () => {
   return (
     <div className="max-w-4xl mx-auto flex flex-col gap-6">
       <div>
-        <h2 className="text-2xl font-bold text-slate-900 dark:text-white">
-          Sign Document
-        </h2>
+        <div className="flex items-center gap-2">
+          <h2 className="text-2xl font-bold text-slate-900 dark:text-white">
+            Visual Signature Stamp
+          </h2>
+          <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300">
+            Electronic Visual Placement
+          </span>
+        </div>
         <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-          Create and position your signature on <strong className="text-slate-800 dark:text-slate-200">{currentFile.name}</strong>.
+          Create and position an electronic visual signature stamp on <strong className="text-slate-800 dark:text-slate-200">{currentFile.name}</strong>. (For cryptographic PKI X.509 certificates, use an enterprise digital certificate service).
         </p>
       </div>
 
