@@ -39,6 +39,9 @@ import {
   analyzePdfHealth as engineAnalyzeHealth,
   unlockPasswordProtectedPdf,
   extractPageTextItems,
+  classifyPdfDocument,
+  DocumentClassification,
+  PageClassification,
 } from '../lib/pdf/pdf-engine';
 import { createSamplePdf } from '../lib/pdf/sample-pdf';
 import { addRecentFile } from '../lib/recent-files';
@@ -65,7 +68,9 @@ interface PdfContextType {
   healthReport: PdfHealthReport | null;
 
   // Document Detection & Security
-  documentType: 'editable' | 'scanned' | 'encrypted' | null;
+  documentType: 'vector' | 'editable' | 'scanned' | 'hybrid' | 'encrypted' | null;
+  documentClassification: DocumentClassification | null;
+  getPageClassification: (pageIndex: number) => PageClassification | null;
   passwordModalOpen: boolean;
   pendingEncryptedFileName: string | null;
   passwordError: string | null;
@@ -158,13 +163,26 @@ export const PdfProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [redoStack, setRedoStack] = useState<DocumentSnapshot[]>([]);
 
   // Document Detection & Security
-  const [documentType, setDocumentType] = useState<'editable' | 'scanned' | 'encrypted' | null>(null);
+  const [documentType, setDocumentType] = useState<
+    'vector' | 'editable' | 'scanned' | 'hybrid' | 'encrypted' | null
+  >(null);
+  const [documentClassification, setDocumentClassification] = useState<DocumentClassification | null>(
+    null
+  );
   const [passwordModalOpen, setPasswordModalOpen] = useState(false);
   const [pendingEncryptedFile, setPendingEncryptedFile] = useState<{
     file: File | { data: ArrayBuffer; name: string };
     buffer: ArrayBuffer;
   } | null>(null);
   const [passwordError, setPasswordError] = useState<string | null>(null);
+
+  const getPageClassification = useCallback(
+    (pageIndex: number): PageClassification | null => {
+      if (!documentClassification || !documentClassification.pages) return null;
+      return documentClassification.pages.find((p) => p.pageNumber === pageIndex + 1) || null;
+    },
+    [documentClassification]
+  );
 
   const closePasswordModal = useCallback(() => {
     setPasswordModalOpen(false);
@@ -355,21 +373,17 @@ export const PdfProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
         setProcessing({ status: 'idle', message: '' });
 
-        // Document Type Detection: Inspect vector text layer
+        // Structural Document & Page Classification (distinguishing vector, scanned, hybrid)
         try {
-          const sampleItems = await extractPageTextItems(buffer, 1);
-          const hasText = sampleItems && sampleItems.length > 0;
-          const detected: 'editable' | 'scanned' = hasText ? 'editable' : 'scanned';
-          setDocumentType(detected);
+          const classification = await classifyPdfDocument(buffer);
+          setDocumentClassification(classification);
+          setDocumentType(classification.documentType);
           setProcessing({
             status: 'idle',
-            message:
-              detected === 'editable'
-                ? 'Editable PDF detected'
-                : 'Scanned PDF detected — OCR editing available',
+            message: classification.summary,
           });
         } catch {
-          setDocumentType('editable');
+          setDocumentType('vector');
         }
 
         // Run health check in background
@@ -474,6 +488,7 @@ export const PdfProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setRedoStack([]);
     setHealthReport(null);
     setDocumentType(null);
+    setDocumentClassification(null);
     clearResult();
     setProcessing({ status: 'idle', message: '' });
     clearSavedSessionDocument();
@@ -1577,6 +1592,8 @@ export const PdfProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         clearResult,
         setProcessingError,
         documentType,
+        documentClassification,
+        getPageClassification,
         passwordModalOpen,
         pendingEncryptedFileName: pendingEncryptedFile
           ? pendingEncryptedFile.file instanceof File

@@ -1,4 +1,5 @@
-import { PDFDocument, rgb, StandardFonts, degrees } from 'pdf-lib';
+import { PDFDocument, rgb, StandardFonts, degrees, PDFName } from 'pdf-lib';
+import zlib from 'zlib';
 
 /**
  * OmniPDF Synthetic Test Document Generator
@@ -205,3 +206,261 @@ export async function createSyntheticImageHeavyPdf(): Promise<Uint8Array> {
 
   return await doc.save();
 }
+
+// 11. Rotated PDF (Pages with 90° and 180° orientation)
+export async function createSyntheticRotatedPdf(): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+
+  const page1 = doc.addPage([595.28, 841.89]);
+  page1.setRotation(degrees(90));
+  page1.drawText('Rotated 90 Degrees Page', { x: 100, y: 500, size: 16, font });
+
+  const page2 = doc.addPage([595.28, 841.89]);
+  page2.setRotation(degrees(180));
+  page2.drawText('Rotated 180 Degrees Page', { x: 100, y: 500, size: 16, font });
+
+  return await doc.save();
+}
+
+// 12. PDF with Annotations (Links and Highlights)
+export async function createSyntheticAnnotatedPdf(): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const page = doc.addPage([595.28, 841.89]);
+
+  page.drawText('Document with Interactive Link Annotation', { x: 50, y: 780, size: 14, font });
+
+  // Add URI link annotation
+  const linkAnnot = doc.context.obj({
+    Type: 'Annot',
+    Subtype: 'Link',
+    Rect: [50, 750, 250, 775],
+    A: {
+      Type: 'Action',
+      S: 'URI',
+      URI: 'https://example.com/test-redact-target',
+    },
+  });
+  const linkAnnotRef = doc.context.register(linkAnnot);
+  (page.node as any).set(PDFName.of('Annots'), doc.context.obj([linkAnnotRef]));
+
+  return await doc.save();
+}
+
+// 13. Compressed Streams PDF (Flate object streams enabled)
+export async function createSyntheticCompressedStreamsPdf(): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+
+  const page = doc.addPage([595.28, 841.89]);
+  page.drawText('Compressed Object Stream Test Fixture', { x: 50, y: 780, size: 14, font });
+  page.drawText('This file uses PDF 1.5 object streams.', { x: 50, y: 750, size: 12, font });
+
+  return await doc.save({ useObjectStreams: true });
+}
+
+// 14. Multiple Content Streams PDF (Page with array of /Contents)
+export async function createSyntheticMultiStreamPdf(): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const page = doc.addPage([595.28, 841.89]);
+
+  // Initial draw
+  page.drawText('Primary Stream Content: Header', { x: 50, y: 780, size: 14, font });
+
+  // Inject secondary content stream
+  const secondStreamBytes = new TextEncoder().encode(
+    'BT /F1 12 Tf 50 720 Td (Secondary Stream Content: Item Alpha) Tj ET\n'
+  );
+  const secondStreamRef = doc.context.register(doc.context.stream(secondStreamBytes));
+
+  const existingContents = (page.node as any).Contents();
+  const contentsArray = doc.context.obj([existingContents, secondStreamRef]);
+  (page.node as any).set(PDFName.of('Contents'), contentsArray);
+
+  return await doc.save();
+}
+
+// 15. Hexadecimal Encoded Text PDF (<48656c6c6f> Tj)
+export async function createSyntheticHexTextPdf(): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const page = doc.addPage([595.28, 841.89]);
+
+  // Write raw stream containing hex strings
+  const streamContent =
+    'BT /Helvetica 14 Tf 50 750 Td <5345435245543132333435> Tj ET\n' +
+    'BT /Helvetica 12 Tf 50 720 Td (PUBLIC_NEIGHBOR_DATA) Tj ET\n';
+  const streamRef = doc.context.register(doc.context.stream(new TextEncoder().encode(streamContent)));
+  (page.node as any).set(PDFName.of('Contents'), streamRef);
+
+  return await doc.save();
+}
+
+// 16. TJ Kerning Array PDF ([ (SEC) -10 (RET) 20 (12345) ] TJ)
+export async function createSyntheticTjArrayPdf(): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const page = doc.addPage([595.28, 841.89]);
+
+  const streamContent =
+    'BT /Helvetica 14 Tf 50 750 Td [ (SEC) -10 (RET) 20 (12345) ] TJ ET\n' +
+    'BT /Helvetica 12 Tf 50 710 Td (PUBLIC_SURVIVING_TEXT) Tj ET\n';
+  const streamRef = doc.context.register(doc.context.stream(new TextEncoder().encode(streamContent)));
+  (page.node as any).set(PDFName.of('Contents'), streamRef);
+
+  return await doc.save();
+}
+
+// 17. Legitimate DRAFT and COPY in body text (MUST survive watermark cleaning!)
+export async function createSyntheticLegitimateDraftCopyPdf(): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const boldFont = await doc.embedFont(StandardFonts.HelveticaBold);
+
+  const page = doc.addPage([595.28, 841.89]);
+  page.drawText('HISTORICAL MANUSCRIPT ARCHIVE', { x: 50, y: 780, size: 16, font: boldFont });
+  page.drawText(
+    'The author submitted the first DRAFT of the novel in early 1998.',
+    { x: 50, y: 740, size: 12, font }
+  );
+  page.drawText(
+    'Please retain a verified physical COPY of this receipt for tax reporting.',
+    { x: 50, y: 710, size: 12, font }
+  );
+
+  return await doc.save();
+}
+
+// 18. Real Corrupted PDF: Damaged XRef and StartXRef Pointer
+export async function createSyntheticCorruptedXrefPdf(): Promise<Uint8Array> {
+  const validBytes = await createSyntheticVectorPdf();
+  // Cut off 50 bytes (destroys %%EOF, startxref, and partial trailing object, causing standard parser to fail)
+  return validBytes.slice(0, validBytes.length - 50);
+}
+
+// 19. Real Corrupted PDF: Truncated File (missing %%EOF and trailer)
+export async function createSyntheticTruncatedPdf(): Promise<Uint8Array> {
+  const validBytes = await createSyntheticVectorPdf();
+  // Cut off the last 250 bytes
+  return validBytes.slice(0, validBytes.length - 250);
+}
+
+// 20. Real Corrupted PDF: Fatal Unrecoverable Noise (Zero PDF markers)
+export function createSyntheticFatalCorruptPdf(): Uint8Array {
+  return new TextEncoder().encode('GARBAGE_DATA_CORRUPTED_NOT_A_VALID_PDF_STRUCTURE_ABC123');
+}
+
+/**
+ * Generates an 8-bit grayscale PNG bitmap with a visible dark digit '7' on white background.
+ */
+export function createPngWithDigit7(width = 400, height = 400): Uint8Array {
+  const rowBytes = 1 + width;
+  const buffer = Buffer.alloc(rowBytes * height, 255); // all white
+
+  // Top horizontal bar: y 80 to 120, x 120 to 280
+  for (let y = 80; y < 120; y++) {
+    for (let x = 120; x < 280; x++) {
+      buffer[y * rowBytes + 1 + x] = 0;
+    }
+  }
+  // Diagonal stem: from (280, 120) down to (160, 320)
+  for (let i = 0; i < 200; i++) {
+    const y = 120 + i;
+    const cx = Math.round(270 - i * 0.55);
+    for (let dx = -18; dx <= 18; dx++) {
+      const x = cx + dx;
+      if (x >= 0 && x < width && y >= 0 && y < height) {
+        buffer[y * rowBytes + 1 + x] = 0;
+      }
+    }
+  }
+
+  // Prepend 0 filter byte for each scanline
+  for (let y = 0; y < height; y++) buffer[y * rowBytes] = 0;
+  const compressed = zlib.deflateSync(buffer);
+
+  function crc32(buf: Buffer): number {
+    let c = 0xffffffff;
+    for (let i = 0; i < buf.length; i++) {
+      c ^= buf[i];
+      for (let j = 0; j < 8; j++) c = (c >>> 1) ^ (c & 1 ? 0xedb88320 : 0);
+    }
+    return (c ^ 0xffffffff) >>> 0;
+  }
+
+  function makeChunk(type: string, data: Buffer): Buffer {
+    const lenBuf = Buffer.alloc(4);
+    lenBuf.writeUInt32BE(data.length, 0);
+    const typeBuf = Buffer.from(type, 'ascii');
+    const crcBuf = Buffer.alloc(4);
+    const full = Buffer.concat([typeBuf, data]);
+    crcBuf.writeUInt32BE(crc32(full), 0);
+    return Buffer.concat([lenBuf, full, crcBuf]);
+  }
+
+  const sig = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(width, 0);
+  ihdr.writeUInt32BE(height, 4);
+  ihdr[8] = 8;
+  ihdr[9] = 0; // Grayscale
+  ihdr[10] = 0;
+  ihdr[11] = 0;
+  ihdr[12] = 0;
+
+  return new Uint8Array(
+    Buffer.concat([
+      sig,
+      makeChunk('IHDR', ihdr),
+      makeChunk('IDAT', compressed),
+      makeChunk('IEND', Buffer.alloc(0)),
+    ])
+  );
+}
+
+// 21. Scanned PDF with embedded raster image containing visible digit '7' + OCR text layer '7'
+export async function createSyntheticScannedWithOcrPdf(): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const page = doc.addPage([595.28, 841.89]); // A4
+
+  // Embed raster image with visible digit 7
+  const pngBytes = createPngWithDigit7(400, 400);
+  const embeddedPng = await doc.embedPng(pngBytes);
+
+  page.drawImage(embeddedPng, {
+    x: 0,
+    y: 0,
+    width: 595.28,
+    height: 841.89,
+  });
+
+  // OCR/Searchable text layer positioned directly over the visible digit 7
+  // Coordinates in center of page (297, 420)
+  page.drawText('7', {
+    x: 297,
+    y: 420,
+    size: 24,
+    font,
+    color: rgb(0, 0, 0),
+    opacity: 0, // invisible OCR text layer
+  });
+
+  return await doc.save();
+}
+
+// 22. Pure Vector PDF with digit '7'
+export async function createSyntheticVectorWithDigit7Pdf(): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const page = doc.addPage([595.28, 841.89]);
+  page.drawText('Sample Vector Invoice Digit: 7', {
+    x: 50,
+    y: 750,
+    size: 20,
+    font,
+    color: rgb(0, 0, 0),
+  });
+  return await doc.save();
+}
+

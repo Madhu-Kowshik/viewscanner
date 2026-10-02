@@ -65,7 +65,7 @@ export const LandingPage: React.FC = () => {
     {
       id: 'sign',
       name: 'Sign Documents',
-      desc: 'Draw, type, or upload your digital signature and stamp it anywhere on any page.',
+      desc: 'Draw, type, or upload your visual signature stamp and place it anywhere on any page.',
       icon: PenTool,
       path: '/sign',
       color: 'bg-blue-50 text-blue-600 dark:bg-blue-950/60 dark:text-blue-400',

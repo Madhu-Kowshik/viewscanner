@@ -15,7 +15,7 @@ export const App: React.FC = () => {
     <ThemeProvider>
       <PdfProvider>
         <HashRouter>
-          <div className="min-h-screen flex flex-col bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100 font-sans selection:bg-brand-500/20 selection:text-brand-600 dark:selection:text-brand-300">
+          <div className="min-h-screen flex flex-col bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100 font-sans selection:bg-brand-500/20 selection:text-brand-600 dark:selection:text-brand-300 overflow-x-hidden">
             <Navbar />
             <div className="flex-1 flex flex-col">
               <Routes>

@@ -28,9 +28,14 @@ export function getBaseFileName(filename: string): string {
 }
 
 export async function downloadBlob(blob: Blob, fileName: string): Promise<void> {
-  // Check if Web Share API is available with file sharing support (typically iOS Safari & modern mobile browsers)
+  // Check if Web Share API is available with file sharing support on mobile devices (iOS / Android)
   // This allows mobile users to save directly to iOS Files, AirDrop, Google Drive, or open in apps.
-  if (typeof navigator !== 'undefined' && typeof navigator.canShare === 'function') {
+  const isMobile =
+    typeof navigator !== 'undefined' &&
+    navigator.maxTouchPoints > 0 &&
+    /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+
+  if (isMobile && typeof navigator.canShare === 'function') {
     try {
       const file = new File([blob], fileName, { type: blob.type || 'application/pdf' });
       if (navigator.canShare({ files: [file] })) {

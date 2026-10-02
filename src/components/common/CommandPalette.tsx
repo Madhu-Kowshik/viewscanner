@@ -71,7 +71,7 @@ export const ALL_TOOLS: ToolIntent[] = [
     id: 'sign',
     title: 'Sign Document',
     category: 'Sign',
-    description: 'Draw, type, or upload digital signature and stamp anywhere',
+    description: 'Draw, type, or upload visual signature stamp and place anywhere',
     path: '/sign',
     icon: PenTool,
     keywords: ['sign', 'signature', 'initials', 'stamp', 'sign document', 'autograph'],

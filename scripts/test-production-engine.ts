@@ -21,7 +21,7 @@
  * 14. Coordinate Transformation Pipeline (PDF <-> Render <-> OCR)
  */
 
-import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
+import { PDFDocument, rgb, StandardFonts, PDFName, PDFRef, PDFDict } from 'pdf-lib';
 import pdfjs from 'pdfjs-dist/legacy/build/pdf.js';
 
 // Direct production engine imports!
@@ -30,7 +30,9 @@ import {
   removeWatermarkFromPdf,
   reconstructScannedDocumentWithEdits,
   applyPermanentRedactionsToPdf,
+  applyPermanentRedactionsWithReport,
   encryptPdfDocument,
+  unlockPasswordProtectedPdf,
   validateExportedPdf,
   pdfToRenderCoords,
   renderToPdfCoords,
@@ -55,7 +57,28 @@ import {
   repairPdfDocument,
   convertTextToPdf,
   cleanPdfMetadata,
+  classifyPdfPage,
+  classifyPdfDocument,
+  validateExportedEdits,
+  replaceVectorTextInPdf,
+  TextReplacementEdit,
 } from '../src/lib/pdf/pdf-engine';
+
+import {
+  createSyntheticVectorPdf,
+  createSyntheticCorruptedXrefPdf,
+  createSyntheticTruncatedPdf,
+  createSyntheticFatalCorruptPdf,
+  createSyntheticLegitimateDraftCopyPdf,
+  createSyntheticWatermarkedPdf,
+  createSyntheticTjArrayPdf,
+  createSyntheticHexTextPdf,
+  createSyntheticAnnotatedPdf,
+  createSyntheticScannedWithOcrPdf,
+  createSyntheticVectorWithDigit7Pdf,
+  createSyntheticScannedPdf,
+  createSyntheticMixedPdf,
+} from './synthetic-docs';
 
 console.log('================================================================');
 console.log('OMNIPDF PRODUCTION ENGINE INTEGRATION & FORENSIC VERIFICATION');
@@ -682,17 +705,39 @@ async function run() {
     assert(reopened.getPageCount() === 1, 'TEST 25B: Structural compression preserved page count & vector layout');
   }
 
-  console.log('\n--- SECTION 11: FAULT-TOLERANT PDF REPAIR ---');
+  console.log('\n--- SECTION 11: FAULT-TOLERANT PDF REPAIR (REAL CORRUPTION) ---');
 
-  // TEST 26: PDF Repair of Damaged Stream
+  // TEST 26A: Repair of real PDF with corrupted startxref
   {
-    const doc = await PDFDocument.create();
-    doc.addPage([500, 500]).drawText('Document for Repair Test', { x: 50, y: 400, size: 14 });
-    const validBytes = await doc.save();
+    const corruptedBytes = await createSyntheticCorruptedXrefPdf();
+    let originalFailed = false;
+    try {
+      await PDFDocument.load(corruptedBytes);
+    } catch {
+      originalFailed = true;
+    }
+    assert(originalFailed, 'TEST 26A-1: Confirmed input fixture contains genuine corruption (PDFDocument.load fails)');
 
-    const report = await repairPdfDocument(validBytes);
-    assert(report.success && report.pageCount === 1, 'TEST 26A: repairPdfDocument rebuilt XRef & page tree');
-    assert(report.actionsTaken.length > 0, 'TEST 26B: Repair audit actions logged transparently');
+    const report = await repairPdfDocument(corruptedBytes);
+    assert(report.success && report.pageCount >= 1, 'TEST 26A-2: repairPdfDocument salvaged corrupted XRef table');
+    assert(report.repairedBytes !== undefined && report.repairedBytes.byteLength > 100, 'TEST 26A-3: Repaired bytes produced');
+
+    const reopened = await PDFDocument.load(report.repairedBytes!);
+    assert(reopened.getPageCount() >= 1, 'TEST 26A-4: Exported repaired document successfully reopened by PDF-lib');
+  }
+
+  // TEST 26B: Repair of truncated PDF (missing %%EOF)
+  {
+    const truncatedBytes = await createSyntheticTruncatedPdf();
+    const report = await repairPdfDocument(truncatedBytes);
+    assert(report.actionsTaken.some((a) => a.includes('truncated') || a.includes('trailer') || a.includes('salvaged')), 'TEST 26B: Truncated trailer detected and salvaged');
+  }
+
+  // TEST 26C: Graceful failure on fatal unrecoverable noise
+  {
+    const fatalBytes = createSyntheticFatalCorruptPdf();
+    const report = await repairPdfDocument(fatalBytes);
+    assert(!report.success && report.pageCount === 0, 'TEST 26C: Unrecoverable random bytes correctly reported as failed (zero fake success)');
   }
 
   console.log('\n--- SECTION 12: FORMAT CONVERSION ---');
@@ -720,6 +765,306 @@ async function run() {
     const sanitizedDoc = await PDFDocument.load(sanitizedBytes);
     assert(!sanitizedDoc.getTitle() || sanitizedDoc.getTitle() === '', 'TEST 28A: Title sanitized');
     assert(!sanitizedDoc.getAuthor() || sanitizedDoc.getAuthor() === '', 'TEST 28B: Author sanitized');
+  }
+
+  console.log('\n--- SECTION 14: WATERMARK REMOVAL SAFETY (BODY TEXT SURVIVAL) ---');
+
+  // TEST 29: Legitimate body words ('DRAFT' & 'COPY') MUST NOT be erased by automatic cleaner
+  {
+    const manuscriptBytes = await createSyntheticLegitimateDraftCopyPdf();
+    const cleanedBytes = await removeWatermarkFromPdf(manuscriptBytes, { mode: 'auto' });
+
+    // Reopen and extract text
+    const task = pdfjs.getDocument({ data: new Uint8Array(cleanedBytes) });
+    const verifyDoc = await task.promise;
+    const page = await verifyDoc.getPage(1);
+    const content = await page.getTextContent();
+    const fullText = content.items.map((i: any) => i.str || '').join(' ');
+
+    assert(fullText.includes('DRAFT'), 'TEST 29A: Legitimate body word "DRAFT" was preserved and NOT deleted');
+    assert(fullText.includes('COPY'), 'TEST 29B: Legitimate body word "COPY" was preserved and NOT deleted');
+  }
+
+  // TEST 30: Explicit watermark text removal
+  {
+    const wmBytes = await createSyntheticWatermarkedPdf();
+    const cleanedBytes = await removeWatermarkFromPdf(wmBytes, {
+      mode: 'auto',
+      watermarkText: 'CONFIDENTIAL',
+    });
+
+    const task = pdfjs.getDocument({ data: new Uint8Array(cleanedBytes) });
+    const verifyDoc = await task.promise;
+    const page = await verifyDoc.getPage(1);
+    const content = await page.getTextContent();
+    const fullText = content.items.map((i: any) => i.str || '').join(' ');
+
+    assert(!fullText.includes('CONFIDENTIAL'), 'TEST 30: Explicit target watermark "CONFIDENTIAL" successfully removed');
+  }
+
+  console.log('\n--- SECTION 15: ADVERSARIAL REDACTION (TJ ARRAYS, HEX & ANNOTATIONS) ---');
+
+  // TEST 31: Redaction of kerning array TJ text [ (SEC) -10 (RET) 20 (12345) ]
+  {
+    const tjBytes = await createSyntheticTjArrayPdf();
+    const report = await applyPermanentRedactionsWithReport(tjBytes, [
+      {
+        pageNumber: 1,
+        bbox: { x0: 40, y0: 740, x1: 250, y1: 770 },
+        textToRemove: 'SECRET12345',
+      },
+    ]);
+
+    assert(report.success, 'TEST 31A: applyPermanentRedactionsWithReport executed successfully');
+
+    // Verify reopen with PDF.js
+    const task = pdfjs.getDocument({ data: new Uint8Array(report.pdfBytes) });
+    const verifyDoc = await task.promise;
+    const page = await verifyDoc.getPage(1);
+    const content = await page.getTextContent();
+    const fullText = content.items.map((i: any) => i.str || '').join(' ');
+
+    assert(!fullText.includes('SECRET12345'), 'TEST 31B: SECRET12345 purged from TJ kerning array');
+    assert(fullText.includes('PUBLIC_SURVIVING_TEXT'), 'TEST 31C: Neighboring non-redacted text survived 100%');
+  }
+
+  // TEST 32: Redaction of Hex encoded text <5345435245543132333435>
+  {
+    const hexBytes = await createSyntheticHexTextPdf();
+    const report = await applyPermanentRedactionsWithReport(hexBytes, [
+      {
+        pageNumber: 1,
+        bbox: { x0: 40, y0: 740, x1: 250, y1: 770 },
+        textToRemove: 'SECRET12345',
+      },
+    ]);
+
+    const task = pdfjs.getDocument({ data: new Uint8Array(report.pdfBytes) });
+    const verifyDoc = await task.promise;
+    const page = await verifyDoc.getPage(1);
+    const content = await page.getTextContent();
+    const fullText = content.items.map((i: any) => i.str || '').join(' ');
+
+    assert(!fullText.includes('SECRET12345'), 'TEST 32A: SECRET12345 purged from hexadecimal text operator');
+    assert(fullText.includes('PUBLIC_NEIGHBOR_DATA'), 'TEST 32B: Neighboring text PUBLIC_NEIGHBOR_DATA survived 100%');
+  }
+
+  // TEST 33: Intersecting link annotation purging
+  {
+    const annotBytes = await createSyntheticAnnotatedPdf();
+    const report = await applyPermanentRedactionsWithReport(annotBytes, [
+      {
+        pageNumber: 1,
+        bbox: { x0: 40, y0: 740, x1: 260, y1: 780 },
+      },
+    ]);
+
+    assert(report.annotationsRemoved >= 1, 'TEST 33A: Intersecting link annotation detected and purged');
+
+    const reopened = await PDFDocument.load(report.pdfBytes);
+    const page = reopened.getPage(0);
+    const remainingAnnots = (page.node as any).Annots?.();
+    const annotCount = remainingAnnots ? (remainingAnnots as any).size?.() || 0 : 0;
+    assert(annotCount === 0, 'TEST 33B: Annotation array in exported PDF verified empty of sensitive link');
+  }
+
+  console.log('\n--- SECTION 16: PASSWORD ENCRYPTION & UNLOCK ARCHITECTURE ---');
+
+  // TEST 34: Encrypt and unlock verification
+  {
+    const baseBytes = await createSyntheticVectorPdf();
+    const password = 'CorrectPassword2026!';
+    const encryptedBytes = await encryptPdfDocument(baseBytes, password);
+
+    // Test wrong password rejection
+    const wrongResult = await unlockPasswordProtectedPdf(encryptedBytes.buffer as ArrayBuffer, 'WrongPassword!');
+    assert(!wrongResult.success, 'TEST 34A: Incorrect password rejected with failure status');
+
+    // Test correct password unlock
+    const unlockResult = await unlockPasswordProtectedPdf(encryptedBytes.buffer as ArrayBuffer, password);
+    assert(unlockResult.success, 'TEST 34B: Correct password accepted');
+    assert(unlockResult.pageCount === 1, 'TEST 34C: Unlocked document page count matches original');
+    assert(unlockResult.dimensions && unlockResult.dimensions.length === 1, 'TEST 34D: Page dimensions preserved');
+    assert(unlockResult.method === 'raster-reconstruction' || unlockResult.method === 'lossless', 'TEST 34E: Unlock method explicitly and honestly reported');
+  }
+
+  console.log('\n--- SECTION 17: VECTOR VS SCANNED/HYBRID PDF CLASSIFICATION & EDITING (7 -> 8 BUG REPAIR) ---');
+
+  // TEST 35: Document & Page Classification (Distinguishing vector, scanned, hybrid)
+  {
+    const vectorPdf = await createSyntheticVectorPdf();
+    const cVector = await classifyPdfDocument(vectorPdf);
+    assert(cVector.documentType === 'vector', 'TEST 35A: Pure vector PDF classified as vector document');
+    assert(cVector.pages[0].type === 'vector', 'TEST 35B: Pure vector page classified as vector page');
+
+    const scannedPdf = await createSyntheticScannedPdf();
+    const cScanned = await classifyPdfDocument(scannedPdf);
+    assert(cScanned.documentType === 'scanned', 'TEST 35C: Pure scanned PDF classified as scanned document');
+    assert(cScanned.pages[0].type === 'scanned', 'TEST 35D: Pure scanned page classified as scanned page');
+
+    const hybridPdf = await createSyntheticScannedWithOcrPdf();
+    const cHybrid = await classifyPdfDocument(hybridPdf);
+    assert(cHybrid.documentType === 'hybrid', 'TEST 35E: Scanned PDF with OCR layer classified as hybrid document');
+    assert(cHybrid.pages[0].type === 'hybrid', 'TEST 35F: Scanned page with OCR layer classified as hybrid page');
+
+    const mixedPdf = await createSyntheticMixedPdf();
+    const cMixed = await classifyPdfDocument(mixedPdf);
+    assert(cMixed.documentType === 'hybrid', 'TEST 35G: Mixed PDF with vector + scanned classified as hybrid document');
+    assert(cMixed.pages[0].type === 'vector', 'TEST 35H: Mixed PDF Page 1 classified as vector');
+    assert(cMixed.pages[1].type === 'scanned', 'TEST 35I: Mixed PDF Page 2 classified as scanned');
+  }
+
+  // TEST 36: Scanned PDF with OCR Layer — 7 -> 8 Edit (Visible Pixels + Searchable Text Sync)
+  {
+    const initialHybridBytes = await createSyntheticScannedWithOcrPdf();
+
+    // Verify initial state: has OCR text 7
+    const initialPdf = await pdfjs.getDocument({ data: initialHybridBytes }).promise;
+    const initP1 = await initialPdf.getPage(1);
+    const initTc = await initP1.getTextContent();
+    const initStrings = initTc.items.map((it: any) => it.str).filter(Boolean);
+    assert(initStrings.includes('7'), 'TEST 36A: Initial synthetic fixture contains OCR digit "7"');
+
+    // Run the actual production scanned editing pipeline
+    const edits: ScannedTextEditItem[] = [
+      {
+        id: 'ocr-edit-digit-7',
+        pageNumber: 1,
+        originalText: '7',
+        newText: '8',
+        bbox: { x0: 290 / 595.28, y0: (841.89 - 440) / 841.89, x1: 320 / 595.28, y1: (841.89 - 410) / 841.89 },
+        fontSize: 24,
+      },
+    ];
+
+    const exportedBytes = await reconstructScannedDocumentWithEdits(initialHybridBytes, edits);
+    assert(exportedBytes.byteLength > 0, 'TEST 36B: Reconstructed scanned document produced non-empty bytes');
+
+    // Reopen exported file with PDF.js as ultimate proof
+    const verifyPdf = await pdfjs.getDocument({ data: exportedBytes }).promise;
+    assert(verifyPdf.numPages === 1, 'TEST 36C: Exported document page count preserved (1 page)');
+
+    const p1 = await verifyPdf.getPage(1);
+    const tc = await p1.getTextContent();
+    const allStrings = tc.items.map((it: any) => it.str).filter(Boolean);
+
+    assert(allStrings.some((s) => s.includes('8')), 'TEST 36D: Searchable text layer verified to contain replacement "8"');
+    assert(!allStrings.some((s) => s.includes('7')), 'TEST 36E: Searchable text layer verified to NO LONGER contain "7"');
+
+    // Reopen with PDFDocument to verify page dimensions
+    const docCheck = await PDFDocument.load(exportedBytes);
+    const p0Size = docCheck.getPage(0).getSize();
+    assert(Math.abs(p0Size.width - 595.28) < 1 && Math.abs(p0Size.height - 841.89) < 1, 'TEST 36F: Page dimensions exactly preserved (A4 595.28 x 841.89 pt)');
+  }
+
+  // TEST 37: Genuine Vector PDF — 7 -> 8 Edit (Independent Vector Pipeline)
+  {
+    const initialVectorBytes = await createSyntheticVectorWithDigit7Pdf();
+
+    // Verify initial state has "7"
+    const initialPdf = await pdfjs.getDocument({ data: initialVectorBytes }).promise;
+    const initStrings = (await (await initialPdf.getPage(1)).getTextContent()).items.map((it: any) => it.str);
+    assert(initStrings.some((s) => s.includes('7')), 'TEST 37A: Initial vector PDF contains digit "7"');
+
+    // Run the actual production vector replacement pipeline
+    const vectorEdits: TextReplacementEdit[] = [
+      {
+        pageNumber: 1,
+        originalText: '7',
+        newText: '8',
+        pdfX: 50,
+        pdfY: 750,
+        pdfWidth: 300,
+        pdfHeight: 20,
+        isDeleted: false,
+      },
+    ];
+
+    const exportedVectorBytes = await replaceVectorTextInPdf(initialVectorBytes, vectorEdits);
+    assert(exportedVectorBytes.byteLength > 0, 'TEST 37B: Vector replacement produced valid bytes');
+
+    // Reopen and verify
+    const verifyPdf = await pdfjs.getDocument({ data: exportedVectorBytes }).promise;
+    const verifiedStrings = (await (await verifyPdf.getPage(1)).getTextContent()).items.map((it: any) => it.str);
+
+    assert(verifiedStrings.some((s) => s.includes('8')), 'TEST 37C: Vector text stream contains replacement "8"');
+    assert(!verifiedStrings.some((s) => s.includes('7')), 'TEST 37D: Vector text stream no longer contains original "7"');
+  }
+
+  // TEST 38: Failure Mode Regression Test (Proving Vector Pipeline Fails on Scanned PDFs)
+  {
+    const scannedWithOcr = await createSyntheticScannedWithOcrPdf();
+
+    // Run the FAULTY workflow: applying replaceVectorTextInPdf to a scanned PDF with OCR layer
+    const faultyEdits: TextReplacementEdit[] = [
+      {
+        pageNumber: 1,
+        originalText: '7',
+        newText: '8',
+        pdfX: 297,
+        pdfY: 420,
+        pdfWidth: 24,
+        pdfHeight: 24,
+        isDeleted: false,
+      },
+    ];
+
+    const faultyOutput = await replaceVectorTextInPdf(scannedWithOcr, faultyEdits);
+
+    // Inspect the image XObject in faultyOutput:
+    const faultyDoc = await PDFDocument.load(faultyOutput);
+    const p1 = faultyDoc.getPage(0);
+    const res = p1.node.get(PDFName.of('Resources'));
+    const resolvedRes = res instanceof PDFRef ? faultyDoc.context.lookup(res) : res;
+    const xobj = (resolvedRes as any)?.get(PDFName.of('XObject'));
+    const resolvedXobj = xobj instanceof PDFRef ? faultyDoc.context.lookup(xobj) : xobj;
+
+    // The image XObject exists and was completely unedited by vector replacement!
+    let imageFound = false;
+    if (resolvedXobj) {
+      for (const [, val] of (resolvedXobj as any).entries()) {
+        const obj = val instanceof PDFRef ? faultyDoc.context.lookup(val) : val;
+        const dict = (obj as any)?.dict ?? (obj as any);
+        if (dict?.get(PDFName.of('Subtype'))?.toString() === '/Image') {
+          imageFound = true;
+        }
+      }
+    }
+
+    assert(imageFound, 'TEST 38A: Regression Confirmed: Vector editor leaves the raster image XObject untouched');
+
+    // In contrast, the classification system catches this and routes to scanned reconstruction:
+    const classification = await classifyPdfPage(scannedWithOcr, 1);
+    assert(classification.type === 'hybrid', 'TEST 38B: Classification correctly blocks vector routing and designates hybrid/scanned pipeline');
+  }
+
+  // TEST 39: Critical Save Validation (validateExportedEdits)
+  {
+    const original = await createSyntheticVectorPdf();
+
+    // Case 1: Unchanged bytes must fail validation
+    const failCheck = await validateExportedEdits(original, original, [
+      { pageNumber: 1, originalText: 'INVOICE', newText: 'RECEIPT' },
+    ]);
+    assert(!failCheck.valid, 'TEST 39A: validateExportedEdits correctly rejects identical unchanged document');
+
+    // Case 2: Persisted edits must pass validation
+    const vectorEdits: TextReplacementEdit[] = [
+      {
+        pageNumber: 1,
+        originalText: 'INVOICE',
+        newText: 'RECEIPT',
+        pdfX: 50,
+        pdfY: 780,
+        pdfWidth: 200,
+        pdfHeight: 20,
+        isDeleted: false,
+      },
+    ];
+    const updatedBytes = await replaceVectorTextInPdf(original, vectorEdits);
+    const passCheck = await validateExportedEdits(original, updatedBytes, vectorEdits);
+    assert(passCheck.valid, 'TEST 39B: validateExportedEdits confirms persisted edits upon export');
+    assert(passCheck.fileDifferent, 'TEST 39C: Confirmed exported document byte structure changed');
   }
 
   console.log('\n================================================================');

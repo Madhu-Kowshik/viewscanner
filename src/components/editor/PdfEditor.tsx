@@ -26,12 +26,15 @@ import { AnnotationItem, AnnotationType } from '../../types/pdf';
 import {
   extractPageTextItems,
   replaceVectorTextInPdf,
+  reconstructScannedDocumentWithEdits,
+  ScannedTextEditItem,
+  validateExportedEdits,
   PdfTextItemInfo,
   TextReplacementEdit,
 } from '../../lib/pdf/pdf-engine';
 
 export const PdfEditor: React.FC = () => {
-  const { currentFile, pages, applyAnnotations, updateActiveDocument } = usePdf();
+  const { currentFile, pages, applyAnnotations, updateActiveDocument, getPageClassification } = usePdf();
   const [selectedPageIndex, setSelectedPageIndex] = useState(0);
 
   // Mode: 'annotate' vs 'edit-existing'
@@ -56,6 +59,7 @@ export const PdfEditor: React.FC = () => {
   const [replacementFontFamily, setReplacementFontFamily] = useState<'sans' | 'serif' | 'mono' | 'bold'>('sans');
   const [vectorEdits, setVectorEdits] = useState<TextReplacementEdit[]>([]);
   const [isSavingVector, setIsSavingVector] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -254,12 +258,55 @@ export const PdfEditor: React.FC = () => {
     if (vectorEdits.length === 0 || !currentFile) return;
     try {
       setIsSavingVector(true);
-      const updatedBytes = await replaceVectorTextInPdf(currentFile.data, vectorEdits);
+      setSaveError(null);
+
+      let updatedBytes: Uint8Array<any> = new Uint8Array(currentFile.data);
+      const vectorPageEdits: TextReplacementEdit[] = [];
+      const scannedPageEdits: ScannedTextEditItem[] = [];
+
+      for (const edit of vectorEdits) {
+        const cls = getPageClassification(edit.pageNumber - 1);
+        if (cls?.type === 'scanned' || cls?.type === 'hybrid') {
+          scannedPageEdits.push({
+            id: `edit_${edit.pageNumber}_${Math.round(edit.pdfX)}_${Math.round(edit.pdfY)}`,
+            pageNumber: edit.pageNumber,
+            originalText: edit.originalText || '',
+            newText: edit.newText,
+            bbox: {
+              x0: edit.pdfX,
+              y0: edit.pdfY,
+              x1: edit.pdfX + edit.pdfWidth,
+              y1: edit.pdfY + edit.pdfHeight,
+            },
+            color: edit.color,
+            fontSize: edit.fontSize,
+            fontFamily: edit.fontFamily as any,
+            isDeleted: edit.isDeleted,
+          });
+        } else {
+          vectorPageEdits.push(edit);
+        }
+      }
+
+      if (scannedPageEdits.length > 0) {
+        updatedBytes = await reconstructScannedDocumentWithEdits(updatedBytes, scannedPageEdits);
+      }
+      if (vectorPageEdits.length > 0) {
+        updatedBytes = await replaceVectorTextInPdf(updatedBytes, vectorPageEdits);
+      }
+
+      // Critical Save Validation (Phase 7)
+      const valResult = await validateExportedEdits(currentFile.data, updatedBytes, vectorEdits);
+      if (!valResult.valid) {
+        throw new Error(valResult.error || 'Failed to verify changes in exported document');
+      }
+
       await updateActiveDocument(updatedBytes, 'Edit PDF Text');
       setVectorEdits([]);
       setSelectedTextItem(null);
-    } catch (err) {
-      console.error('Failed saving vector text edits:', err);
+    } catch (err: any) {
+      console.error('Failed saving text edits:', err);
+      setSaveError(err.message || 'Error persisting edits to PDF document');
     } finally {
       setIsSavingVector(false);
     }
@@ -312,6 +359,51 @@ export const PdfEditor: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {/* Page Classification & Integrity Banner */}
+      {(() => {
+        const cls = getPageClassification(selectedPageIndex);
+        if (cls?.type === 'hybrid') {
+          return (
+            <div className="flex items-center gap-2 p-3 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 rounded-xl text-xs text-amber-800 dark:text-amber-300">
+              <Sparkles className="w-4 h-4 shrink-0 text-amber-600" />
+              <span>
+                <strong>Scanned document with OCR text layer detected</strong> — edits on this page will reconstruct the visible raster image pixels and keep the OCR text layer synchronized.
+              </span>
+            </div>
+          );
+        }
+        if (cls?.type === 'scanned') {
+          return (
+            <div className="flex items-center gap-2 p-3 bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900/60 rounded-xl text-xs text-blue-800 dark:text-blue-300">
+              <FileText className="w-4 h-4 shrink-0 text-blue-600" />
+              <span>
+                <strong>Scanned document detected</strong> — edits will reconstruct the visible page with tone-matched background patches.
+              </span>
+            </div>
+          );
+        }
+        return (
+          <div className="flex items-center gap-2 p-2.5 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900/60 rounded-xl text-xs text-emerald-800 dark:text-emerald-300">
+            <Check className="w-4 h-4 shrink-0 text-emerald-600" />
+            <span>
+              <strong>Vector PDF detected</strong> — native text editing enabled.
+            </span>
+          </div>
+        );
+      })()}
+
+      {saveError && (
+        <div className="flex items-center justify-between p-3 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 rounded-xl text-xs text-rose-800 dark:text-rose-300">
+          <div className="flex items-center gap-2">
+            <ShieldAlert className="w-4 h-4 shrink-0 text-rose-600" />
+            <span>{saveError}</span>
+          </div>
+          <button onClick={() => setSaveError(null)} className="p-1 hover:bg-rose-100 rounded">
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Main Canvas Editor Area */}

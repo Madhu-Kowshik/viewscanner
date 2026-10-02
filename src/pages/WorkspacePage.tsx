@@ -38,7 +38,7 @@ export interface WorkspacePageProps {
 export const WorkspacePage: React.FC<WorkspacePageProps> = ({ initialTool = 'organize' }) => {
   const location = useLocation();
   const navigate = useNavigate();
-  const { currentFile, healthReport, savedSession, resumeSavedSession, dismissSavedSession } = usePdf();
+  const { currentFile, healthReport, savedSession, resumeSavedSession, dismissSavedSession, documentType } = usePdf();
   const [dismissedTipFileId, setDismissedTipFileId] = useState<string | null>(null);
 
   // Determine active tool from current path
@@ -95,7 +95,11 @@ export const WorkspacePage: React.FC<WorkspacePageProps> = ({ initialTool = 'org
     return (
       <div className="flex-1 flex flex-col h-[calc(100vh-4rem)] overflow-hidden">
         <UnifiedDocumentWorkspace
-          initialMode={modeMap[activeTool] || 'view'}
+          initialMode={
+            activeTool === 'editor' && (documentType === 'scanned' || documentType === 'hybrid')
+              ? 'scanned-ocr'
+              : modeMap[activeTool] || 'view'
+          }
           onNavigateHome={() => navigate('/')}
         />
         <ResultModal onOpenViewer={() => navigate('/viewer')} />

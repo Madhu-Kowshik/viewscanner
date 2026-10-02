@@ -60,6 +60,7 @@ import {
   reconstructScannedPageWithEdits,
   reconstructScannedDocumentWithEdits,
   ScannedTextEditItem,
+  validateExportedEdits,
 } from '../../lib/pdf/pdf-engine';
 import { runDetailedOcrOnImageDataUrl, OcrLineItem, OcrWordItem } from '../../lib/pdf/pdf-engine';
 import { AnnotationItem, AnnotationType } from '../../types/pdf';
@@ -104,6 +105,7 @@ export const UnifiedDocumentWorkspace: React.FC<UnifiedDocumentWorkspaceProps> =
     undo,
     redo,
     processing,
+    getPageClassification,
   } = usePdf();
 
   // Mode and Navigation State
@@ -245,6 +247,44 @@ export const UnifiedDocumentWorkspace: React.FC<UnifiedDocumentWorkspaceProps> =
       isMounted = false;
     };
   }, [currentFile, currentPageIndex, mode]);
+
+  // Phase 3: Auto-route to scanned reconstruction if current page is scanned or hybrid
+  useEffect(() => {
+    if (mode === 'edit-text') {
+      const cls = getPageClassification(currentPageIndex);
+      if (cls?.type === 'scanned' || cls?.type === 'hybrid') {
+        setMode('scanned-ocr');
+      }
+    }
+  }, [currentPageIndex, mode, getPageClassification]);
+
+  // Phase 5: For hybrid pages in 'scanned-ocr' mode, immediately load text layer items as OCR words
+  useEffect(() => {
+    if (!currentFile || mode !== 'scanned-ocr') return;
+    const cls = getPageClassification(currentPageIndex);
+    if ((cls?.type === 'hybrid' || cls?.type === 'scanned') && ocrWords.length === 0) {
+      extractPageTextItems(currentFile.data, currentPageIndex + 1)
+        .then((items) => {
+          if (items.length > 0) {
+            const words: OcrWordItem[] = items.map((it, idx) => ({
+              id: `hybrid_word_${currentPageIndex + 1}_${idx}`,
+              text: it.text,
+              bbox: {
+                x0: it.x,
+                y0: it.y,
+                x1: it.x + it.width,
+                y1: it.y + it.height,
+              },
+              confidence: 95,
+            }));
+            setOcrWords(words);
+          }
+        })
+        .catch((err) => {
+          console.warn('Hybrid OCR text extraction warning:', err);
+        });
+    }
+  }, [currentFile, currentPageIndex, mode, getPageClassification, ocrWords.length]);
 
   // Global Keyboard Shortcuts (Ctrl+Z, Ctrl+Y, Ctrl+S, Ctrl+F, Escape, Arrow keys)
   useEffect(() => {
@@ -478,12 +518,19 @@ export const UnifiedDocumentWorkspace: React.FC<UnifiedDocumentWorkspaceProps> =
       setIsSavingVector(true);
       setStatusMessage('Burning vector text edits directly into PDF structure...');
       const updated = await replaceVectorTextInPdf(currentFile.data, vectorEdits);
+
+      // Phase 7: Critical Save Validation
+      const valResult = await validateExportedEdits(currentFile.data, updated, vectorEdits);
+      if (!valResult.valid) {
+        throw new Error(valResult.error || 'Vector edit validation failed');
+      }
+
       await updateActiveDocument(updated, 'Vector Text Edit');
       setVectorEdits([]);
-      setStatusMessage('Vector text successfully saved');
-    } catch (err) {
+      setStatusMessage('Vector text successfully saved and verified.');
+    } catch (err: any) {
       console.error('Vector save error:', err);
-      setStatusMessage('Error saving vector text');
+      setStatusMessage(err?.message || 'Error saving vector text');
     } finally {
       setIsSavingVector(false);
     }
@@ -571,13 +618,20 @@ export const UnifiedDocumentWorkspace: React.FC<UnifiedDocumentWorkspaceProps> =
         currentFile.data,
         scannedEdits
       );
+
+      // Phase 7: Critical Save Validation
+      const valResult = await validateExportedEdits(currentFile.data, updated, scannedEdits);
+      if (!valResult.valid) {
+        throw new Error(valResult.error || 'Failed to verify changes in reconstructed document');
+      }
+
       await updateActiveDocument(updated, 'Edit Scanned Text');
       setScannedEdits([]);
       setSelectedOcrWord(null);
-      setStatusMessage('Scanned pages reconstructed successfully with local background preservation.');
-    } catch (err) {
+      setStatusMessage('Scanned pages reconstructed and verified successfully with local background preservation.');
+    } catch (err: any) {
       console.error('Scanned edit save error:', err);
-      setStatusMessage('Error reconstructing scanned text.');
+      setStatusMessage(err?.message || 'Error reconstructing scanned text.');
     } finally {
       setIsSavingScanned(false);
     }
@@ -1079,8 +1133,38 @@ export const UnifiedDocumentWorkspace: React.FC<UnifiedDocumentWorkspaceProps> =
         {/* CENTER VIEWPORT: HIGH-DPI CANVAS & INTERACTIVE OVERLAY */}
         <main
           ref={viewportWrapperRef}
-          className="flex-1 overflow-auto p-4 sm:p-8 flex items-center justify-center bg-slate-200/60 dark:bg-slate-950 relative"
+          className="flex-1 overflow-auto p-4 sm:p-8 flex flex-col items-center justify-start bg-slate-200/60 dark:bg-slate-950 relative gap-3"
         >
+          {/* Classification & Engine Mode Indicator (Phase 11) */}
+          {(() => {
+            const cls = getPageClassification(currentPageIndex);
+            if (cls?.type === 'hybrid') {
+              return (
+                <div className="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium bg-amber-500/10 text-amber-800 dark:text-amber-300 border border-amber-500/20 backdrop-blur-xs shadow-2xs z-20">
+                  <Sparkles className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                  <span>
+                    Scanned document with OCR layer detected — edits will reconstruct the visible page.
+                  </span>
+                </div>
+              );
+            }
+            if (cls?.type === 'scanned') {
+              return (
+                <div className="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium bg-blue-500/10 text-blue-800 dark:text-blue-300 border border-blue-500/20 backdrop-blur-xs shadow-2xs z-20">
+                  <ScanText className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                  <span>
+                    Scanned document detected — edits will reconstruct the visible page.
+                  </span>
+                </div>
+              );
+            }
+            return (
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-800 dark:text-emerald-300 border border-emerald-500/20 backdrop-blur-xs shadow-2xs z-20">
+                <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                <span>Vector PDF detected — native text editing enabled.</span>
+              </div>
+            );
+          })()}
           <div
             ref={containerRef}
             onMouseDown={handleAnnotationMouseDown}
@@ -1198,11 +1282,11 @@ export const UnifiedDocumentWorkspace: React.FC<UnifiedDocumentWorkspaceProps> =
                       onBlur={() => commitInlineOcr(w, inlineOcrValue)}
                       className="absolute z-30 bg-white dark:bg-slate-900 border-2 border-amber-500 rounded px-1 text-slate-900 dark:text-white shadow-xl outline-none font-sans"
                       style={{
-                        left: `${(w.bbox.x0 / (canvasRef.current?.width || 1)) * 100}%`,
-                        top: `${(w.bbox.y0 / (canvasRef.current?.height || 1)) * 100}%`,
-                        minWidth: `${Math.max(((w.bbox.x1 - w.bbox.x0) / (canvasRef.current?.width || 1)) * 100, 10)}%`,
-                        height: `${Math.max(((w.bbox.y1 - w.bbox.y0) / (canvasRef.current?.height || 1)) * 100, 3.5)}%`,
-                        fontSize: `${Math.max(12, Math.round(w.bbox.y1 - w.bbox.y0))}px`,
+                        left: `${w.bbox.x1 <= 1.05 ? w.bbox.x0 * 100 : (w.bbox.x0 / (canvasRef.current?.width || 1)) * 100}%`,
+                        top: `${w.bbox.y1 <= 1.05 ? w.bbox.y0 * 100 : (w.bbox.y0 / (canvasRef.current?.height || 1)) * 100}%`,
+                        minWidth: `${Math.max(w.bbox.x1 <= 1.05 ? (w.bbox.x1 - w.bbox.x0) * 100 : ((w.bbox.x1 - w.bbox.x0) / (canvasRef.current?.width || 1)) * 100, 10)}%`,
+                        height: `${Math.max(w.bbox.y1 <= 1.05 ? (w.bbox.y1 - w.bbox.y0) * 100 : ((w.bbox.y1 - w.bbox.y0) / (canvasRef.current?.height || 1)) * 100, 3.5)}%`,
+                        fontSize: `${Math.max(12, Math.round(w.bbox.y1 <= 1.05 ? (w.bbox.y1 - w.bbox.y0) * (canvasRef.current?.height || 800) : (w.bbox.y1 - w.bbox.y0)))}px`,
                       }}
                     />
                   );
@@ -1235,10 +1319,10 @@ export const UnifiedDocumentWorkspace: React.FC<UnifiedDocumentWorkspaceProps> =
                         : 'border-transparent hover:border-rose-400/80 hover:bg-rose-50/20'
                     )}
                     style={{
-                      left: `${(w.bbox.x0 / (canvasRef.current?.width || 1)) * 100}%`,
-                      top: `${(w.bbox.y0 / (canvasRef.current?.height || 1)) * 100}%`,
-                      width: `${((w.bbox.x1 - w.bbox.x0) / (canvasRef.current?.width || 1)) * 100}%`,
-                      height: `${((w.bbox.y1 - w.bbox.y0) / (canvasRef.current?.height || 1)) * 100}%`,
+                      left: `${w.bbox.x1 <= 1.05 ? w.bbox.x0 * 100 : (w.bbox.x0 / (canvasRef.current?.width || 1)) * 100}%`,
+                      top: `${w.bbox.y1 <= 1.05 ? w.bbox.y0 * 100 : (w.bbox.y0 / (canvasRef.current?.height || 1)) * 100}%`,
+                      width: `${w.bbox.x1 <= 1.05 ? Math.max((w.bbox.x1 - w.bbox.x0) * 100, 1.5) : Math.max(((w.bbox.x1 - w.bbox.x0) / (canvasRef.current?.width || 1)) * 100, 1.5)}%`,
+                      height: `${w.bbox.y1 <= 1.05 ? Math.max((w.bbox.y1 - w.bbox.y0) * 100, 2) : Math.max(((w.bbox.y1 - w.bbox.y0) / (canvasRef.current?.height || 1)) * 100, 2)}%`,
                     }}
                     title={`Recognized word: "${hasEdit ? hasEdit.newText : w.text}" (${Math.round(w.confidence)}% confidence) - Double-click to edit directly`}
                   />
@@ -1603,7 +1687,7 @@ export const UnifiedDocumentWorkspace: React.FC<UnifiedDocumentWorkspaceProps> =
                 <div className="border-b border-slate-100 dark:border-slate-800 pb-2">
                   <h3 className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
                     <FileSignature className="w-4 h-4 text-brand-600" />
-                    <span>Digital Signature</span>
+                    <span>Visual Signature Stamp</span>
                   </h3>
                 </div>
 
