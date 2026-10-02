@@ -1,6 +1,15 @@
-# OmniPDF — Feature Status & Implementation Matrix
+# OmniPDF — Feature Status & Verification Matrix
 
-Every feature listed below is **100% fully implemented and functional client-side** in OmniPDF. There are zero mockups, zero simulated buttons, and zero external backend dependencies. All processing executes inside browser sandboxed memory using WebAssembly, PDF.js, pdf-lib, Tesseract.js, and client-side JavaScript.
+This document is a **truthful implementation inventory**, not a claim that every feature is universally supported. Statuses distinguish production-engine coverage from complete browser/E2E verification.
+
+**Status definitions**
+- **PRODUCTION VERIFIED** — production implementation exercised by automated tests, including export/reopen checks where applicable.
+- **IMPLEMENTED — LIMITED** — real implementation exists, but PDF structure, format, quality, or browser limitations apply.
+- **ENGINE VERIFIED** — production engine tested, but the complete UI workflow is not yet covered by browser E2E.
+- **UI / PARTIAL** — interface or partial workflow exists; the advertised full capability is not proven.
+- **NOT IMPLEMENTED** — do not advertise as supported.
+
+All processing is client-side unless explicitly documented otherwise.
 
 ---
 
@@ -42,7 +51,7 @@ Every feature listed below is **100% fully implemented and functional client-sid
 | 19 | **Neural OCR Word Detection** | ✅ IMPLEMENTED + TESTED | `runDetailedOcrOnImageDataUrl` with Tesseract.js extracts word bounding boxes |
 | 20 | **On-Canvas Click-to-Edit Words** | ✅ IMPLEMENTED + TESTED | Double-click or Enter directly over word on canvas opens inline input to edit typos or numbers |
 | 21 | **Tone-Matched Patch Reconstruction**| ✅ IMPLEMENTED + TESTED | Automatically samples surrounding paper tone to reconstruct background |
-| 22 | **Multi-Language OCR** | ✅ IMPLEMENTED + TESTED | Supports English, Spanish, French, German, Italian, Portuguese |
+| 22 | **Multi-Language OCR** | ✅ IMPLEMENTED + TESTED | Supports English, Spanish, French, German, Italian, and Chinese Simplified in the current UI; language availability depends on bundled/cached OCR data. |
 | 23 | **Confidence Scoring Display** | ✅ IMPLEMENTED + TESTED | Color-coded confidence indicators (emerald >85%, amber 60-84%, rose <60%) |
 
 ---
@@ -50,7 +59,7 @@ Every feature listed below is **100% fully implemented and functional client-sid
 ### Category 4 — First-Class Image Studio & In-Image Text Replacement
 | # | Feature | Status | Implementation Details |
 | :--- | :--- | :--- | :--- |
-| 23 | **Universal Image Format Support** | ✅ IMPLEMENTED + TESTED | Ingests PNG, JPG, JPEG, WEBP, BMP, and TIFF |
+| 23 | **Supported Image Format Intake** | ✅ IMPLEMENTED + TESTED | Verified browser paths currently cover PNG, JPG/JPEG and WEBP; BMP/TIFF require explicit decoder verification before being advertised as supported. |
 | 24 | **CamScanner Magic Clean Filter** | ✅ IMPLEMENTED + TESTED | High-pass paper bleaching removes shadows and grey cast |
 | 25 | **High-Contrast B&W Filter** | ✅ IMPLEMENTED + TESTED | Threshold binarization for crisp text documents |
 | 26 | **Brightness & Contrast Sliders** | ✅ IMPLEMENTED + TESTED | Real-time pixel adjustments via canvas filter pipeline |
@@ -85,7 +94,7 @@ Every feature listed below is **100% fully implemented and functional client-sid
 | 43 | **Text Highlighter** | ✅ IMPLEMENTED + TESTED | Semi-transparent yellow/cyan/green highlighter overlays |
 | 44 | **Vector Shapes & Arrows** | ✅ IMPLEMENTED + TESTED | Rectangle, circle, and directional arrow markup |
 | 45 | **Whiteout Overlay** | ✅ IMPLEMENTED + TESTED | Opaque white rectangular cover |
-| 46 | **True Permanent Redaction**| ✅ IMPLEMENTED + TESTED | `applyPermanentRedactionsToPdf` purges underlying text operators (`Tj`, `TJ`, `Tm`) directly from content streams (turning tokens like `SECRET12345` into `() Tj`), in addition to drawing opaque black redaction rectangles. Underlying text is 100% eliminated from raw PDF bytes. |
+| 46 | **Permanent Redaction — Supported Structures**| ✅ IMPLEMENTED + TESTED | `applyPermanentRedactionsToPdf` purges underlying text operators (`Tj`, `TJ`, `Tm`) directly from content streams (turning tokens like `SECRET12345` into `() Tj`), in addition to drawing opaque black redaction rectangles. Underlying selectable text is removed for supported content-stream structures; security-grade redaction must be treated as structure-dependent. |
 | 47 | **Burn Annotations to PDF** | ✅ IMPLEMENTED + TESTED | `applyAnnotationsToPdf` merges overlays into binary document tree |
 
 ---
@@ -101,7 +110,7 @@ Every feature listed below is **100% fully implemented and functional client-sid
 
 ---
 
-### Category 8 — Digital Signatures & Stamps
+### Category 8 — Visual Signatures & Stamps
 | # | Feature | Status | Implementation Details |
 | :--- | :--- | :--- | :--- |
 | 53 | **Draw Signature Pad** | ✅ IMPLEMENTED + TESTED | Canvas signature pad with smooth stroke rendering |
@@ -147,10 +156,10 @@ Every feature listed below is **100% fully implemented and functional client-sid
 | # | Feature | Status | Implementation Details |
 | :--- | :--- | :--- | :--- |
 | 71 | **Metadata Sanitization** | ✅ IMPLEMENTED + TESTED | Scrubs Author, Producer, Creation Date, and OS signatures |
-| 72 | **Corrupt PDF Stream Repair** | ✅ IMPLEMENTED + TESTED | Rebuilds broken XRef tables and extracts readable streams |
+| 72 | **Fault-Tolerant PDF Recovery Attempt** | ✅ IMPLEMENTED + TESTED | Attempts recovery of partially parseable/corrupted PDFs; this is not a universal forensic PDF repair engine. |
 | 73 | **Document Health Audit** | ✅ IMPLEMENTED + TESTED | Audits page count, blank pages, encryption, and optimization |
 | 74 | **Smart Document Type Detection**| ✅ IMPLEMENTED + TESTED | Distinguishes between scanned documents and vector PDFs |
-| 75 | **Standard PDF Encryption (AES-256 / RC4)**| ✅ IMPLEMENTED + TESTED | `encryptPdfDocument` uses `@pdfsmaller/pdf-encrypt` for standard PDF AES-256 and RC4-128 encryption with user & owner passwords. Verified with strict password rejection and unlocking. |
+| 75 | **Standard PDF Encryption (AES-256 / RC4)**| ✅ IMPLEMENTED + TESTED | `encryptPdfDocument` uses `@pdfsmaller/pdf-encrypt` for PDF password protection. Encryption/password rejection is engine-tested. Unlocking currently uses password verification followed by raster reconstruction and is therefore lossy rather than a general-purpose lossless decryption operation. |
 | 76 | **Centralized Export Validation**| ✅ IMPLEMENTED + TESTED | `validateExportedPdf` inspects structural validity, page counts, dimensions, and ensures no leaked strings or malformed objects. |
 | 77 | **Side-by-Side PDF Comparator** | ✅ IMPLEMENTED + TESTED | Dual-pane canvas viewer with synchronized page scrolling |
 | 78 | **Batch Queue Processor** | ✅ IMPLEMENTED + TESTED | Multi-file queue for bulk compression, watermarking, and metadata sanitization |
