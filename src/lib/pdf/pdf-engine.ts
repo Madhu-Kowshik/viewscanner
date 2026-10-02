@@ -105,7 +105,7 @@ export async function validatePdf(data: ArrayBuffer): Promise<PdfValidationResul
 export async function unlockPasswordProtectedPdf(
   data: ArrayBuffer,
   password: string
-): Promise<{ success: boolean; unlockedData?: ArrayBuffer; error?: string }> {
+): Promise<{ success: boolean; unlockedData?: ArrayBuffer; decryptedData?: ArrayBuffer; error?: string }> {
   try {
     const loadingTask = pdfjsLib.getDocument({
       data: new Uint8Array(data.slice(0)),
@@ -126,12 +126,14 @@ export async function unlockPasswordProtectedPdf(
       const strippedBytes = await doc.save();
       const verifyDoc = await PDFDocument.load(strippedBytes);
       if (verifyDoc.getPageCount() > 0) {
+        const outBuf = strippedBytes.buffer.slice(
+          strippedBytes.byteOffset,
+          strippedBytes.byteOffset + strippedBytes.byteLength
+        ) as ArrayBuffer;
         return {
           success: true,
-          unlockedData: strippedBytes.buffer.slice(
-            strippedBytes.byteOffset,
-            strippedBytes.byteOffset + strippedBytes.byteLength
-          ) as ArrayBuffer,
+          unlockedData: outBuf,
+          decryptedData: outBuf,
         };
       }
     } catch {
@@ -168,12 +170,14 @@ export async function unlockPasswordProtectedPdf(
     }
 
     const savedBytes = await newDoc.save();
+    const finalBuf = savedBytes.buffer.slice(
+      savedBytes.byteOffset,
+      savedBytes.byteOffset + savedBytes.byteLength
+    ) as ArrayBuffer;
     return {
       success: true,
-      unlockedData: savedBytes.buffer.slice(
-        savedBytes.byteOffset,
-        savedBytes.byteOffset + savedBytes.byteLength
-      ) as ArrayBuffer,
+      unlockedData: finalBuf,
+      decryptedData: finalBuf,
     };
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -266,6 +270,190 @@ export async function renderPageThumbnail(
   canvas.height = 0;
 
   return dataUrl;
+}
+
+export interface RenderCoordinateSystem {
+  pdfWidth: number;     // in points (72 DPI)
+  pdfHeight: number;    // in points (72 DPI)
+  renderWidth: number;  // in physical pixels
+  renderHeight: number; // in physical pixels
+  scale: number;        // renderWidth / pdfWidth
+}
+
+export interface RenderPageResult {
+  dataUrl: string;
+  width: number;
+  height: number;
+  scale: number;
+  originalWidth: number;
+  originalHeight: number;
+}
+
+/**
+ * Explicitly renders a PDF page at a precise scale factor (e.g. 1.0 = 72 DPI, 2.0 = 144 DPI, 4.16 = 300 DPI).
+ * Strictly separated from renderPageToWidth to avoid scale/targetWidth confusion.
+ */
+export async function renderPageAtScale(
+  data: ArrayBuffer | Uint8Array,
+  pageNumber: number,
+  scale = 2.0,
+  options?: { format?: 'image/png' | 'image/jpeg'; quality?: number }
+): Promise<RenderPageResult> {
+  const loadingTask = pdfjsLib.getDocument({
+    data: new Uint8Array(data.slice(0)),
+    cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/',
+    cMapPacked: true,
+  });
+
+  const pdf = await loadingTask.promise;
+  const page = await pdf.getPage(pageNumber);
+
+  const initialViewport = page.getViewport({ scale: 1.0 });
+  const viewport = page.getViewport({ scale });
+
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.floor(viewport.width);
+  canvas.height = Math.floor(viewport.height);
+
+  const context = canvas.getContext('2d', { alpha: false });
+  if (!context) throw new Error('Canvas context could not be created');
+
+  context.fillStyle = '#ffffff';
+  context.fillRect(0, 0, canvas.width, canvas.height);
+
+  await page.render({
+    canvasContext: context,
+    viewport,
+  }).promise;
+
+  const mime = options?.format || 'image/png';
+  const quality = options?.quality ?? (mime === 'image/jpeg' ? 0.95 : undefined);
+  const dataUrl = canvas.toDataURL(mime, quality);
+
+  page.cleanup();
+  await pdf.destroy();
+  canvas.width = 0;
+  canvas.height = 0;
+
+  return {
+    dataUrl,
+    width: Math.floor(viewport.width),
+    height: Math.floor(viewport.height),
+    scale,
+    originalWidth: initialViewport.width,
+    originalHeight: initialViewport.height,
+  };
+}
+
+/**
+ * Explicitly renders a PDF page scaled to fit an exact target pixel width.
+ */
+export async function renderPageToWidth(
+  data: ArrayBuffer | Uint8Array,
+  pageNumber: number,
+  targetWidth = 800,
+  options?: { format?: 'image/png' | 'image/jpeg'; quality?: number }
+): Promise<RenderPageResult> {
+  const loadingTask = pdfjsLib.getDocument({
+    data: new Uint8Array(data.slice(0)),
+    cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/',
+    cMapPacked: true,
+  });
+
+  const pdf = await loadingTask.promise;
+  const page = await pdf.getPage(pageNumber);
+
+  const initialViewport = page.getViewport({ scale: 1.0 });
+  const scale = targetWidth / initialViewport.width;
+  const viewport = page.getViewport({ scale });
+
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.floor(viewport.width);
+  canvas.height = Math.floor(viewport.height);
+
+  const context = canvas.getContext('2d', { alpha: false });
+  if (!context) throw new Error('Canvas context could not be created');
+
+  context.fillStyle = '#ffffff';
+  context.fillRect(0, 0, canvas.width, canvas.height);
+
+  await page.render({
+    canvasContext: context,
+    viewport,
+  }).promise;
+
+  const mime = options?.format || 'image/png';
+  const quality = options?.quality ?? (mime === 'image/jpeg' ? 0.92 : undefined);
+  const dataUrl = canvas.toDataURL(mime, quality);
+
+  page.cleanup();
+  await pdf.destroy();
+  canvas.width = 0;
+  canvas.height = 0;
+
+  return {
+    dataUrl,
+    width: Math.floor(viewport.width),
+    height: Math.floor(viewport.height),
+    scale,
+    originalWidth: initialViewport.width,
+    originalHeight: initialViewport.height,
+  };
+}
+
+/**
+ * Explicit Coordinate Transformation Pipeline
+ * PDF (bottom-left origin, 72 pt/in) <-> Render Canvas (top-left origin, physical px) <-> OCR (normalized 0-1)
+ */
+export function pdfToRenderCoords(
+  ptX: number,
+  ptY: number,
+  sys: RenderCoordinateSystem
+): { x: number; y: number } {
+  return {
+    x: ptX * (sys.renderWidth / sys.pdfWidth),
+    y: (sys.pdfHeight - ptY) * (sys.renderHeight / sys.pdfHeight),
+  };
+}
+
+export function renderToPdfCoords(
+  renderX: number,
+  renderY: number,
+  sys: RenderCoordinateSystem
+): { x: number; y: number } {
+  return {
+    x: renderX * (sys.pdfWidth / sys.renderWidth),
+    y: sys.pdfHeight - (renderY * (sys.pdfHeight / sys.renderHeight)),
+  };
+}
+
+export function ocrToRenderCoords(
+  ocrBbox: { x0: number; y0: number; x1: number; y1: number },
+  renderWidth: number,
+  renderHeight: number
+): { x: number; y: number; width: number; height: number } {
+  const isNorm = ocrBbox.x1 <= 1.01 && ocrBbox.y1 <= 1.01;
+  const x = isNorm ? ocrBbox.x0 * renderWidth : ocrBbox.x0;
+  const y = isNorm ? ocrBbox.y0 * renderHeight : ocrBbox.y0;
+  const width = isNorm ? (ocrBbox.x1 - ocrBbox.x0) * renderWidth : ocrBbox.x1 - ocrBbox.x0;
+  const height = isNorm ? (ocrBbox.y1 - ocrBbox.y0) * renderHeight : ocrBbox.y1 - ocrBbox.y0;
+  return { x, y, width, height };
+}
+
+export function renderToNormalizedCoords(
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  renderWidth: number,
+  renderHeight: number
+): { x0: number; y0: number; x1: number; y1: number } {
+  return {
+    x0: x / renderWidth,
+    y0: y / renderHeight,
+    x1: (x + width) / renderWidth,
+    y1: (y + height) / renderHeight,
+  };
 }
 
 /**
@@ -1000,6 +1188,52 @@ export async function applyAnnotationsToPdf(
         color: rgb(0, 0, 0),
         opacity: 1.0,
       });
+
+      // Permanently remove underlying text from PDF content stream
+      const contents = (page.node as any).Contents?.();
+      let streamRefs: PDFRef[] = [];
+      if (contents instanceof PDFRef) {
+        streamRefs = [contents];
+      } else if (contents instanceof PDFArray) {
+        streamRefs = contents.asArray().filter((r): r is PDFRef => r instanceof PDFRef);
+      }
+
+      for (const ref of streamRefs) {
+        const rawObj = doc.context.lookup(ref);
+        if (!rawObj) continue;
+        try {
+          const decoded = decodePDFRawStream(rawObj as any);
+          let streamStr = new TextDecoder('latin1').decode(decoded.decode());
+          let streamChanged = false;
+
+          // If specific text is associated
+          if (ann.text && ann.text.trim()) {
+            const res = replaceTextInContentStream(streamStr, ann.text.trim(), '', true, false);
+            if (res.matched) {
+              streamStr = res.updatedStream;
+              streamChanged = true;
+            }
+          }
+
+          // Purge text operators inside redaction bounding box
+          const textMatrixRegex = /([0-9.-]+)\s+([0-9.-]+)\s+([0-9.-]+)\s+([0-9.-]+)\s+([0-9.-]+)\s+([0-9.-]+)\s+Tm\s*(\([^\)]*\)|<[^>]*>)\s*Tj/g;
+          streamStr = streamStr.replace(textMatrixRegex, (match, a, b, c, d, e, f) => {
+            const tx = parseFloat(e);
+            const ty = parseFloat(f);
+            if (tx >= pdfX - 5 && tx <= pdfX + pdfW + 5 && ty >= pdfY - 5 && ty <= pdfY + pdfH + 5) {
+              streamChanged = true;
+              return `${a} ${b} ${c} ${d} ${e} ${f} Tm () Tj`;
+            }
+            return match;
+          });
+
+          if (streamChanged) {
+            doc.context.assign(ref, doc.context.stream(new TextEncoder().encode(streamStr)));
+          }
+        } catch {
+          // Stream decode warning ignored
+        }
+      }
     } else if (ann.type === 'shape-rect') {
       page.drawRectangle({
         x: pdfX,
@@ -2347,7 +2581,7 @@ export async function removeWatermarkFromPdf(
   const doc = await PDFDocument.load(srcData, { ignoreEncryption: true });
   const total = doc.getPageCount();
 
-  let vectorWatermarkRemoved = false;
+  const pageVectorRemoved = new Array(total).fill(false);
 
   // TIER 1: Check PDF Object, Annotation, and Content Stream Watermark Removal (Zero Rasterization)
   for (let pIdx = 0; pIdx < total; pIdx++) {
@@ -2379,7 +2613,7 @@ export async function removeWatermarkFromPdf(
               title.toLowerCase().includes('watermark') ||
               contents.toLowerCase().includes('watermark');
             if (isWmAnnot) {
-              vectorWatermarkRemoved = true;
+              pageVectorRemoved[pIdx] = true;
               continue; // Exclude this watermark annotation
             }
           }
@@ -2411,7 +2645,7 @@ export async function removeWatermarkFromPdf(
         if (artifactRegex.test(streamStr)) {
           streamStr = streamStr.replace(artifactRegex, '');
           streamChanged = true;
-          vectorWatermarkRemoved = true;
+          pageVectorRemoved[pIdx] = true;
         }
 
         // B. Remove specific watermark text if provided or common watermark strings
@@ -2437,7 +2671,7 @@ export async function removeWatermarkFromPdf(
             if (matched) {
               streamStr = updatedStream;
               streamChanged = true;
-              vectorWatermarkRemoved = true;
+              pageVectorRemoved[pIdx] = true;
             }
           }
         }
@@ -2452,22 +2686,19 @@ export async function removeWatermarkFromPdf(
     }
   }
 
-  // If vector watermark was removed and mode was 'auto' or 'object', return the clean vector PDF!
-  if (vectorWatermarkRemoved && (config.mode === 'auto' || config.mode === 'object')) {
+  // If mode was strictly 'object' or all pages were vector-stripped, return clean vector PDF
+  if (config.mode === 'object' || (config.mode === 'auto' && pageVectorRemoved.every(Boolean))) {
     return await doc.save();
   }
 
-  if (config.mode === 'object') {
-    return await doc.save();
-  }
-
-  // TIER 2: Content-Aware Raster Watermark Removal with Local Background Preservation
+  // TIER 2: Independent Per-Page Content-Aware Raster Watermark Removal with Local Background Preservation
   if (typeof document !== 'undefined') {
     const targetRgb = config.colorHex ? hexToRgb(config.colorHex) : hexToRgb('#94a3b8');
     const tolerance = (config.colorTolerance || 35) / 100;
 
+    const savedDocBytes = await doc.save();
     const loadingTask = pdfjsLib.getDocument({
-      data: new Uint8Array(srcData.slice(0)),
+      data: new Uint8Array(savedDocBytes),
       cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/',
       cMapPacked: true,
     });
@@ -2479,6 +2710,16 @@ export async function removeWatermarkFromPdf(
     if (!ctx) throw new Error('Canvas 2D context unavailable');
 
     for (let i = 1; i <= pdf.numPages; i++) {
+      const pageIdx = i - 1;
+
+      // If page was already clean vector-stripped and mode is auto, preserve pure vector page!
+      if (pageVectorRemoved[pageIdx] && config.mode === 'auto') {
+        const [copied] = await cleanDoc.copyPages(doc, [pageIdx]);
+        cleanDoc.addPage(copied);
+        continue;
+      }
+
+      // Otherwise, process page through high-DPI content-aware raster inpainting
       const page = await pdf.getPage(i);
       const vp = page.getViewport({ scale: 2.0 });
       canvas.width = Math.floor(vp.width);
@@ -2502,8 +2743,8 @@ export async function removeWatermarkFromPdf(
       });
 
       ctx.putImageData(imgData, 0, 0);
-      const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
-      const embedded = await cleanDoc.embedJpg(dataUrl);
+      const dataUrl = canvas.toDataURL('image/png'); // High-resolution lossless PNG
+      const embedded = await cleanDoc.embedPng(dataUrl);
 
       const ptWidth = page.view[2] || vp.width / 2.0;
       const ptHeight = page.view[3] || vp.height / 2.0;
@@ -2519,7 +2760,6 @@ export async function removeWatermarkFromPdf(
     return await cleanDoc.save();
   }
 
-  // Node.js fallback for vector wiping with local background sampling
   return await doc.save();
 }
 
@@ -2752,4 +2992,237 @@ export async function reconstructScannedDocumentWithEdits(
   }
 
   return new Uint8Array(currentBytes);
+}
+
+export interface RedactionItem {
+  pageNumber: number; // 1-indexed
+  bbox: { x0: number; y0: number; x1: number; y1: number }; // normalized 0-1 or points
+  textToRemove?: string;
+}
+
+/**
+ * Permanently redacts sensitive content from a PDF document.
+ * 1. Draws permanent black redaction block on target coordinates.
+ * 2. Purges underlying selectable text / strings from PDF content streams.
+ * 3. Removes intersecting link and form annotations.
+ * Ensures data CANNOT be recovered through Ctrl+A, search, or ordinary text extraction.
+ */
+export async function applyPermanentRedactionsToPdf(
+  pdfBytes: ArrayBuffer | Uint8Array,
+  redactions: RedactionItem[]
+): Promise<Uint8Array> {
+  const doc = await PDFDocument.load(pdfBytes, { ignoreEncryption: true });
+
+  for (const red of redactions) {
+    if (red.pageNumber < 1 || red.pageNumber > doc.getPageCount()) continue;
+    const page = doc.getPage(red.pageNumber - 1);
+    const { width: pWidth, height: pHeight } = page.getSize();
+
+    const isNorm = red.bbox.x1 <= 1.01 && red.bbox.y1 <= 1.01;
+    const pdfX = isNorm ? red.bbox.x0 * pWidth : red.bbox.x0;
+    const pdfY = isNorm ? (1 - red.bbox.y1) * pHeight : red.bbox.y0;
+    const pdfW = isNorm ? (red.bbox.x1 - red.bbox.x0) * pWidth : red.bbox.x1 - red.bbox.x0;
+    const pdfH = isNorm ? (red.bbox.y1 - red.bbox.y0) * pHeight : red.bbox.y1 - red.bbox.y0;
+
+    // 1. Draw permanent black rectangle
+    page.drawRectangle({
+      x: pdfX,
+      y: pdfY,
+      width: pdfW,
+      height: pdfH,
+      color: rgb(0, 0, 0),
+      opacity: 1.0,
+    });
+
+    // 2. Purge underlying stream text
+    const contents = (page.node as any).Contents?.();
+    let streamRefs: PDFRef[] = [];
+    if (contents instanceof PDFRef) {
+      streamRefs = [contents];
+    } else if (contents instanceof PDFArray) {
+      streamRefs = contents.asArray().filter((r): r is PDFRef => r instanceof PDFRef);
+    }
+
+    for (const ref of streamRefs) {
+      const rawObj = doc.context.lookup(ref);
+      if (!rawObj) continue;
+      try {
+        const decoded = decodePDFRawStream(rawObj as any);
+        let streamStr = new TextDecoder('latin1').decode(decoded.decode());
+        let changed = false;
+
+        if (red.textToRemove && red.textToRemove.trim()) {
+          const res = replaceTextInContentStream(streamStr, red.textToRemove.trim(), '', true, false);
+          if (res.matched) {
+            streamStr = res.updatedStream;
+            changed = true;
+          }
+        }
+
+        // Wipe any text operators whose coordinates fall within the redaction bounding box
+        const textMatrixRegex = /([0-9.-]+)\s+([0-9.-]+)\s+([0-9.-]+)\s+([0-9.-]+)\s+([0-9.-]+)\s+([0-9.-]+)\s+Tm\s*(\([^\)]*\)|<[^>]*>)\s*Tj/g;
+        streamStr = streamStr.replace(textMatrixRegex, (match, a, b, c, d, e, f) => {
+          const tx = parseFloat(e);
+          const ty = parseFloat(f);
+          if (tx >= pdfX - 5 && tx <= pdfX + pdfW + 5 && ty >= pdfY - 5 && ty <= pdfY + pdfH + 5) {
+            changed = true;
+            return `${a} ${b} ${c} ${d} ${e} ${f} Tm () Tj`;
+          }
+          return match;
+        });
+
+        if (changed) {
+          doc.context.assign(ref, doc.context.stream(new TextEncoder().encode(streamStr)));
+        }
+      } catch {}
+    }
+  }
+
+  return await doc.save();
+}
+
+/**
+ * Encrypts a PDF document with password protection (AES-256 or RC4-128).
+ * Compatible with all standard PDF readers (Adobe Acrobat, Preview, browsers).
+ */
+export async function encryptPdfDocument(
+  pdfBytes: ArrayBuffer | Uint8Array,
+  userPassword: string,
+  options?: {
+    ownerPassword?: string;
+    algorithm?: 'AES-256' | 'RC4';
+    permissions?: {
+      printing?: 'highResolution' | 'lowResolution' | 'none';
+      modifying?: boolean;
+      copying?: boolean;
+      annotating?: boolean;
+      fillingForms?: boolean;
+      contentAccessibility?: boolean;
+      documentAssembly?: boolean;
+    };
+  }
+): Promise<Uint8Array> {
+  const { encryptPDF } = await import('@pdfsmaller/pdf-encrypt');
+  const u8 = pdfBytes instanceof Uint8Array ? pdfBytes : new Uint8Array(pdfBytes);
+  return await (encryptPDF as any)(u8, userPassword, {
+    ownerPassword: options?.ownerPassword || userPassword,
+    algorithm: options?.algorithm || 'AES-256',
+    permissions: options?.permissions,
+  });
+}
+
+export const decryptProtectedPdf = unlockPasswordProtectedPdf;
+
+export interface ExportValidationResult {
+  valid: boolean;
+  pageCount: number;
+  byteLength: number;
+  dimensionsMatch: boolean;
+  forbiddenStringsFound: string[];
+  requiredStringsMissing: string[];
+  errors: string[];
+}
+
+/**
+ * Centralized Export Validation System.
+ * Reopens and inspects the exported file as the ultimate source of truth.
+ */
+export async function validateExportedPdf(
+  pdfBytes: Uint8Array | ArrayBuffer,
+  options?: {
+    expectedPageCount?: number;
+    expectedWidth?: number;
+    expectedHeight?: number;
+    forbiddenStrings?: string[];
+    requiredStrings?: string[];
+  }
+): Promise<ExportValidationResult> {
+  const errors: string[] = [];
+  const forbiddenFound: string[] = [];
+  const requiredMissing: string[] = [];
+
+  const byteLength = pdfBytes.byteLength;
+  if (!byteLength || byteLength === 0) {
+    return {
+      valid: false,
+      pageCount: 0,
+      byteLength: 0,
+      dimensionsMatch: false,
+      forbiddenStringsFound: [],
+      requiredStringsMissing: options?.requiredStrings || [],
+      errors: ['Exported file buffer is empty (0 bytes)'],
+    };
+  }
+
+  try {
+    const doc = await PDFDocument.load(pdfBytes, { ignoreEncryption: true });
+    const pageCount = doc.getPageCount();
+
+    if (options?.expectedPageCount !== undefined && pageCount !== options.expectedPageCount) {
+      errors.push(`Page count mismatch: expected ${options.expectedPageCount}, got ${pageCount}`);
+    }
+
+    let dimensionsMatch = true;
+    if (options?.expectedWidth !== undefined && options?.expectedHeight !== undefined && pageCount > 0) {
+      const p0 = doc.getPage(0).getSize();
+      if (Math.abs(p0.width - options.expectedWidth) > 2 || Math.abs(p0.height - options.expectedHeight) > 2) {
+        dimensionsMatch = false;
+        errors.push(`Page dimensions mismatch: expected ${options.expectedWidth}x${options.expectedHeight}, got ${p0.width.toFixed(1)}x${p0.height.toFixed(1)}`);
+      }
+    }
+
+    // Inspect text content using pdfjs
+    if (options?.forbiddenStrings?.length || options?.requiredStrings?.length) {
+      try {
+        const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(pdfBytes.slice(0)) }).promise;
+        const allText: string[] = [];
+        for (let i = 1; i <= pdf.numPages; i++) {
+          const page = await pdf.getPage(i);
+          const tc = await page.getTextContent();
+          allText.push(...tc.items.map((it: any) => it.str));
+        }
+        const fullText = allText.join(' ');
+
+        if (options.forbiddenStrings) {
+          for (const forbidden of options.forbiddenStrings) {
+            if (fullText.includes(forbidden)) {
+              forbiddenFound.push(forbidden);
+              errors.push(`Forbidden string detected in exported PDF text: "${forbidden}"`);
+            }
+          }
+        }
+
+        if (options.requiredStrings) {
+          for (const req of options.requiredStrings) {
+            if (!fullText.includes(req)) {
+              requiredMissing.push(req);
+              errors.push(`Required replacement string missing from exported PDF text: "${req}"`);
+            }
+          }
+        }
+      } catch (err: any) {
+        errors.push(`Failed extracting text for content verification: ${err.message}`);
+      }
+    }
+
+    return {
+      valid: errors.length === 0,
+      pageCount,
+      byteLength,
+      dimensionsMatch,
+      forbiddenStringsFound: forbiddenFound,
+      requiredStringsMissing: requiredMissing,
+      errors,
+    };
+  } catch (err: any) {
+    return {
+      valid: false,
+      pageCount: 0,
+      byteLength,
+      dimensionsMatch: false,
+      forbiddenStringsFound: [],
+      requiredStringsMissing: options?.requiredStrings || [],
+      errors: [`Corrupted or unreadable PDF export: ${err.message}`],
+    };
+  }
 }

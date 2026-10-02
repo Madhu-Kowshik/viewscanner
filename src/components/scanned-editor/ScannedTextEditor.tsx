@@ -23,9 +23,10 @@ import { FileDropzone } from '../common/FileDropzone';
 import { Button } from '../ui/Button';
 import { downloadBlob } from '../../lib/utils';
 import {
-  renderPageThumbnail,
+  renderPageAtScale,
   runDetailedOcrOnImageDataUrl,
-  replacePageWithReconstructedImage,
+  reconstructScannedDocumentWithEdits,
+  ScannedTextEditItem,
   OcrLineItem,
 } from '../../lib/pdf/pdf-engine';
 
@@ -54,6 +55,9 @@ export const ScannedTextEditor: React.FC = () => {
   // Page rendering & OCR state
   const [pageDataUrl, setPageDataUrl] = useState<string | null>(null);
   const [imageDims, setImageDims] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
+
+  // Document-level multi-page edits persistence
+  const [documentEditsByPage, setDocumentEditsByPage] = useState<Record<number, EditedTextBlock[]>>({});
   const [textBlocks, setTextBlocks] = useState<EditedTextBlock[]>([]);
   const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null);
 
@@ -64,6 +68,18 @@ export const ScannedTextEditor: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
+  // Helper to update both current page textBlocks and document-level multi-page store
+  const setPageTextBlocks = (newBlocks: EditedTextBlock[] | ((prev: EditedTextBlock[]) => EditedTextBlock[])) => {
+    setTextBlocks((prev) => {
+      const resolved = typeof newBlocks === 'function' ? newBlocks(prev) : newBlocks;
+      setDocumentEditsByPage((docPrev) => ({
+        ...docPrev,
+        [activePageIndex]: resolved,
+      }));
+      return resolved;
+    });
+  };
+
   // Render current page when page index or current file changes
   useEffect(() => {
     if (!currentFile) return;
@@ -72,24 +88,20 @@ export const ScannedTextEditor: React.FC = () => {
     const loadPage = async () => {
       try {
         setIsAnalyzing(true);
-        setAnalysisStatus('Rendering high-res page image...');
-        setTextBlocks([]);
+        setAnalysisStatus('Rendering high-res page image at 2.0x DPI scale...');
         setSelectedBlockId(null);
 
-        // Render at 1.5x resolution for sharp OCR and crisp font matching
-        const url = await renderPageThumbnail(currentFile.data, activePageIndex, 1.5);
+        // Load existing edits for this page if previously edited
+        setTextBlocks(documentEditsByPage[activePageIndex] || []);
+
+        // Architectural Fix: Render at 2.0x scale (DPI equivalent), not targetWidth 1.5!
+        const res = await renderPageAtScale(currentFile.data, activePageIndex + 1, 2.0, {
+          format: 'image/png',
+        });
         if (isCancelled) return;
 
-        setPageDataUrl(url);
-
-        const img = new Image();
-        img.src = url;
-        img.onload = () => {
-          if (!isCancelled) {
-            setImageDims({ width: img.naturalWidth, height: img.naturalHeight });
-          }
-        };
-
+        setPageDataUrl(res.dataUrl);
+        setImageDims({ width: res.width, height: res.height });
         setAnalysisStatus('');
       } catch (err: any) {
         console.error('Error rendering page:', err);
@@ -134,7 +146,7 @@ export const ScannedTextEditor: React.FC = () => {
         };
       });
 
-      setTextBlocks(blocks);
+      setPageTextBlocks(blocks);
       setAnalysisStatus('');
     } catch (err: any) {
       console.error('OCR Detection error:', err);
@@ -231,7 +243,7 @@ export const ScannedTextEditor: React.FC = () => {
 
   // Update selected block text
   const handleUpdateText = (id: string, newText: string) => {
-    setTextBlocks((prev) =>
+    setPageTextBlocks((prev) =>
       prev.map((b) =>
         b.id === id
           ? {
@@ -247,7 +259,7 @@ export const ScannedTextEditor: React.FC = () => {
 
   // Toggle deletion
   const handleDeleteBlock = (id: string) => {
-    setTextBlocks((prev) =>
+    setPageTextBlocks((prev) =>
       prev.map((b) =>
         b.id === id
           ? {
@@ -265,7 +277,7 @@ export const ScannedTextEditor: React.FC = () => {
     id: string,
     updates: Partial<Pick<EditedTextBlock, 'fontSize' | 'fontFamily' | 'isBold' | 'color'>>
   ) => {
-    setTextBlocks((prev) =>
+    setPageTextBlocks((prev) =>
       prev.map((b) =>
         b.id === id
           ? {
@@ -298,33 +310,69 @@ export const ScannedTextEditor: React.FC = () => {
       isModified: true,
       isCustomNew: true,
     };
-    setTextBlocks((prev) => [...prev, newBlock]);
+    setPageTextBlocks((prev) => [...prev, newBlock]);
     setSelectedBlockId(newBlock.id);
   };
 
-  // Save reconstructed page and update active document
+  // Canonical helper to gather normalized edits across all pages in the document
+  const getAllDocumentEdits = (): ScannedTextEditItem[] => {
+    const allItems: ScannedTextEditItem[] = [];
+    const mergedStore = {
+      ...documentEditsByPage,
+      [activePageIndex]: textBlocks,
+    };
+
+    Object.entries(mergedStore).forEach(([pageIdxStr, blocks]) => {
+      const pageNum = parseInt(pageIdxStr, 10) + 1;
+      blocks.forEach((b) => {
+        if (b.isModified || b.isDeleted || b.isCustomNew) {
+          const normX0 = imageDims.width > 0 ? b.bbox.x0 / imageDims.width : b.bbox.x0;
+          const normY0 = imageDims.height > 0 ? b.bbox.y0 / imageDims.height : b.bbox.y0;
+          const normX1 = imageDims.width > 0 ? b.bbox.x1 / imageDims.width : b.bbox.x1;
+          const normY1 = imageDims.height > 0 ? b.bbox.y1 / imageDims.height : b.bbox.y1;
+
+          allItems.push({
+            id: b.id,
+            pageNumber: pageNum,
+            originalText: b.originalText,
+            newText: b.currentText,
+            bbox: {
+              x0: Math.min(normX0, normX1),
+              y0: Math.min(normY0, normY1),
+              x1: Math.max(normX0, normX1),
+              y1: Math.max(normY0, normY1),
+            },
+            isDeleted: b.isDeleted,
+            fontSize: b.fontSize,
+            fontFamily: b.fontFamily === 'serif' ? 'serif' : b.fontFamily === 'monospace' ? 'mono' : 'sans',
+            color: b.color,
+          });
+        }
+      });
+    });
+
+    return allItems;
+  };
+
+  // Save reconstructed document and update active document
   const handleSaveToPdf = async () => {
-    if (!currentFile || !canvasRef.current) return;
+    if (!currentFile) return;
 
     try {
-      setAnalysisStatus('Reconstructing page and updating active PDF...');
+      setAnalysisStatus('Reconstructing multi-page document with content-aware background preservation...');
       setIsAnalyzing(true);
 
-      const reconstructedDataUrl = canvasRef.current.toDataURL('image/jpeg', 0.95);
-      const newPdfBytes = await replacePageWithReconstructedImage(
-        currentFile.data,
-        activePageIndex,
-        reconstructedDataUrl
-      );
+      const allEdits = getAllDocumentEdits();
+      const newPdfBytes = await reconstructScannedDocumentWithEdits(currentFile.data, allEdits);
 
       await updateActiveDocument(
         newPdfBytes,
-        `Edit Scanned Text (Page ${activePageIndex + 1})`
+        `Edit Scanned Document (${allEdits.length} edit${allEdits.length === 1 ? '' : 's'})`
       );
 
       setAnalysisStatus('');
     } catch (err: any) {
-      console.error('Failed saving reconstructed page:', err);
+      console.error('Failed saving reconstructed document:', err);
       setAnalysisStatus(`Save error: ${err.message}`);
     } finally {
       setIsAnalyzing(false);
@@ -333,29 +381,25 @@ export const ScannedTextEditor: React.FC = () => {
 
   // Direct export reconstructed PDF
   const handleExportPdf = async () => {
-    if (!currentFile || !canvasRef.current) return;
+    if (!currentFile) return;
 
     try {
-      setAnalysisStatus('Reconstructing page and preparing export...');
+      setAnalysisStatus('Reconstructing and exporting high-resolution document...');
       setIsAnalyzing(true);
 
-      const reconstructedDataUrl = canvasRef.current.toDataURL('image/jpeg', 0.95);
-      const newPdfBytes = await replacePageWithReconstructedImage(
-        currentFile.data,
-        activePageIndex,
-        reconstructedDataUrl
-      );
+      const allEdits = getAllDocumentEdits();
+      const newPdfBytes = await reconstructScannedDocumentWithEdits(currentFile.data, allEdits);
 
       await updateActiveDocument(
         newPdfBytes,
-        `Edit Scanned Text (Page ${activePageIndex + 1})`
+        `Edit Scanned Document (${allEdits.length} edit${allEdits.length === 1 ? '' : 's'})`
       );
 
       const blob = new Blob([newPdfBytes as any], { type: 'application/pdf' });
       await downloadBlob(blob, currentFile.name);
       setAnalysisStatus('');
     } catch (err: any) {
-      console.error('Failed exporting reconstructed page:', err);
+      console.error('Failed exporting reconstructed document:', err);
       setAnalysisStatus(`Export error: ${err.message}`);
     } finally {
       setIsAnalyzing(false);

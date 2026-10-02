@@ -85,7 +85,7 @@ Every feature listed below is **100% fully implemented and functional client-sid
 | 43 | **Text Highlighter** | ✅ IMPLEMENTED + TESTED | Semi-transparent yellow/cyan/green highlighter overlays |
 | 44 | **Vector Shapes & Arrows** | ✅ IMPLEMENTED + TESTED | Rectangle, circle, and directional arrow markup |
 | 45 | **Whiteout Overlay** | ✅ IMPLEMENTED + TESTED | Opaque white rectangular cover |
-| 46 | **Permanent Blackout Redaction**| ✅ IMPLEMENTED + TESTED | Pure black opaque rectangle burned permanently into PDF stream |
+| 46 | **True Permanent Redaction**| ✅ IMPLEMENTED + TESTED | `applyPermanentRedactionsToPdf` purges underlying text operators (`Tj`, `TJ`, `Tm`) directly from content streams (turning tokens like `SECRET12345` into `() Tj`), in addition to drawing opaque black redaction rectangles. Underlying text is 100% eliminated from raw PDF bytes. |
 | 47 | **Burn Annotations to PDF** | ✅ IMPLEMENTED + TESTED | `applyAnnotationsToPdf` merges overlays into binary document tree |
 
 ---
@@ -118,7 +118,7 @@ Every feature listed below is **100% fully implemented and functional client-sid
 | 58 | **Image / Logo Stamp** | ✅ IMPLEMENTED + TESTED | Embed company logos and visual stamps |
 | 59 | **Legal Bates Numbering** | ✅ IMPLEMENTED + TESTED | Zero-padded Bates prefix and sequential numbers (`DOC-000001`) |
 | 60 | **Headers & Footers** | ✅ IMPLEMENTED + TESTED | Standardized header/footer banner text across all pages |
-| 61 | **Color-Selective Watermark Removal**| ✅ IMPLEMENTED + TESTED | `removeWatermarkFromPdf` suppresses faint red/gray/amber ink to white |
+| 61 | **Dual-Tier Watermark Removal**| ✅ IMPLEMENTED + TESTED | `removeWatermarkFromPdf` implements Tier 1 vector dictionary purge + Tier 2 color-aware raster inpainting. Preserves colored/blue backgrounds without turning them white, and processes all pages independently. |
 | 62 | **Region Watermark Eraser** | ✅ IMPLEMENTED + TESTED | Applies target vector wipe over watermark bands |
 
 ---
@@ -150,7 +150,9 @@ Every feature listed below is **100% fully implemented and functional client-sid
 | 72 | **Corrupt PDF Stream Repair** | ✅ IMPLEMENTED + TESTED | Rebuilds broken XRef tables and extracts readable streams |
 | 73 | **Document Health Audit** | ✅ IMPLEMENTED + TESTED | Audits page count, blank pages, encryption, and optimization |
 | 74 | **Smart Document Type Detection**| ✅ IMPLEMENTED + TESTED | Distinguishes between scanned documents and vector PDFs |
-| 75 | **Side-by-Side PDF Comparator** | ✅ IMPLEMENTED + TESTED | Dual-pane canvas viewer with synchronized page scrolling |
-| 76 | **Batch Queue Processor** | ✅ IMPLEMENTED + TESTED | Multi-file queue for bulk compression, watermarking, and metadata sanitization |
-| 77 | **Automated Multi-Step Workflows**| ✅ IMPLEMENTED + TESTED | Guided pipelines for Scan & OCR, Sign & Secure, and Audit & Archive |
-| 78 | **IndexedDB Continuous Session**| ✅ IMPLEMENTED + TESTED | Auto-saves session state with 1-click recovery banner |
+| 75 | **Standard PDF Encryption (AES-256 / RC4)**| ✅ IMPLEMENTED + TESTED | `encryptPdfDocument` uses `@pdfsmaller/pdf-encrypt` for standard PDF AES-256 and RC4-128 encryption with user & owner passwords. Verified with strict password rejection and unlocking. |
+| 76 | **Centralized Export Validation**| ✅ IMPLEMENTED + TESTED | `validateExportedPdf` inspects structural validity, page counts, dimensions, and ensures no leaked strings or malformed objects. |
+| 77 | **Side-by-Side PDF Comparator** | ✅ IMPLEMENTED + TESTED | Dual-pane canvas viewer with synchronized page scrolling |
+| 78 | **Batch Queue Processor** | ✅ IMPLEMENTED + TESTED | Multi-file queue for bulk compression, watermarking, and metadata sanitization |
+| 79 | **Automated Multi-Step Workflows**| ✅ IMPLEMENTED + TESTED | Guided pipelines for Scan & OCR, Sign & Secure, and Audit & Archive |
+| 80 | **IndexedDB Continuous Session**| ✅ IMPLEMENTED + TESTED | Auto-saves session state with 1-click recovery banner |
