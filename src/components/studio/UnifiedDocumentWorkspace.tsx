@@ -516,21 +516,56 @@ export const UnifiedDocumentWorkspace: React.FC<UnifiedDocumentWorkspaceProps> =
     if (!currentFile || vectorEdits.length === 0) return;
     try {
       setIsSavingVector(true);
-      setStatusMessage('Burning vector text edits directly into PDF structure...');
-      const updated = await replaceVectorTextInPdf(currentFile.data, vectorEdits);
+      setStatusMessage('Saving document text edits...');
 
-      // Phase 7: Critical Save Validation
-      const valResult = await validateExportedEdits(currentFile.data, updated, vectorEdits);
-      if (!valResult.valid) {
-        throw new Error(valResult.error || 'Vector edit validation failed');
+      let updatedBytes: Uint8Array = new Uint8Array(currentFile.data);
+      const pureVectorEdits: TextReplacementEdit[] = [];
+      const scannedEditsToReconstruct: ScannedTextEditItem[] = [];
+
+      for (const edit of vectorEdits) {
+        const cls = getPageClassification(edit.pageNumber - 1);
+        if (cls?.type === 'scanned' || cls?.type === 'hybrid') {
+          scannedEditsToReconstruct.push({
+            id: `v2s_${edit.pageNumber}_${Math.round(edit.pdfX)}_${Math.round(edit.pdfY)}`,
+            pageNumber: edit.pageNumber,
+            originalText: edit.originalText || '',
+            newText: edit.newText,
+            pdfX: edit.pdfX,
+            pdfY: edit.pdfY,
+            pdfWidth: edit.pdfWidth,
+            pdfHeight: edit.pdfHeight,
+            color: edit.color,
+            fontSize: edit.fontSize,
+            fontFamily: edit.fontFamily as any,
+            isDeleted: edit.isDeleted,
+          });
+        } else {
+          pureVectorEdits.push(edit);
+        }
       }
 
-      await updateActiveDocument(updated, 'Vector Text Edit');
+      if (scannedEditsToReconstruct.length > 0) {
+        setStatusMessage('Reconstructing scanned pages with local background preservation...');
+        updatedBytes = await reconstructScannedDocumentWithEdits(updatedBytes, scannedEditsToReconstruct);
+      }
+      if (pureVectorEdits.length > 0) {
+        setStatusMessage('Embedding vector text changes into document stream...');
+        updatedBytes = await replaceVectorTextInPdf(updatedBytes, pureVectorEdits);
+      }
+
+      // Critical Two-Layer Save Validation
+      const valResult = await validateExportedEdits(currentFile.data, updatedBytes, vectorEdits);
+      if (!valResult.valid) {
+        throw new Error(valResult.error || 'Text edit validation failed');
+      }
+
+      await updateActiveDocument(updatedBytes, 'Edit PDF Text');
       setVectorEdits([]);
-      setStatusMessage('Vector text successfully saved and verified.');
+      setSelectedVectorItem(null);
+      setStatusMessage('Text successfully saved and verified.');
     } catch (err: any) {
       console.error('Vector save error:', err);
-      setStatusMessage(err?.message || 'Error saving vector text');
+      setStatusMessage(err?.message || 'Error saving text');
     } finally {
       setIsSavingVector(false);
     }
@@ -542,10 +577,26 @@ export const UnifiedDocumentWorkspace: React.FC<UnifiedDocumentWorkspaceProps> =
     try {
       setIsOcrRunning(true);
       setStatusMessage(`Running Tesseract Neural OCR (${ocrLang}) on page ${currentPageIndex + 1}...`);
+      const cvsW = canvasRef.current.width || 1;
+      const cvsH = canvasRef.current.height || 1;
       const dataUrl = canvasRef.current.toDataURL('image/png');
       const result = await runDetailedOcrOnImageDataUrl(dataUrl, ocrLang);
       const allWords: OcrWordItem[] = [];
-      result.lines.forEach((l) => allWords.push(...l.words));
+      result.lines.forEach((l) => {
+        l.words.forEach((w) => {
+          allWords.push({
+            id: w.id,
+            text: w.text,
+            confidence: w.confidence,
+            bbox: {
+              x0: w.bbox.x0 / cvsW,
+              y0: w.bbox.y0 / cvsH,
+              x1: w.bbox.x1 / cvsW,
+              y1: w.bbox.y1 / cvsH,
+            },
+          });
+        });
+      });
       setOcrWords(allWords);
       setStatusMessage(`OCR detected ${allWords.length} words with ${Math.round(result.confidence)}% confidence.`);
     } catch (err) {
@@ -799,11 +850,42 @@ export const UnifiedDocumentWorkspace: React.FC<UnifiedDocumentWorkspaceProps> =
         setScannedEdits([]);
       }
 
-      // Automatically burn any pending vector edits
+      // Automatically burn any pending text edits
       if (vectorEdits.length > 0) {
-        setStatusMessage('Embedding vector text changes into document stream...');
-        activePdfData = await replaceVectorTextInPdf(activePdfData, vectorEdits);
-        await updateActiveDocument(activePdfData, 'Burn Vector Edits for Export');
+        const pureVectorEdits: TextReplacementEdit[] = [];
+        const pendingScanned: ScannedTextEditItem[] = [];
+
+        for (const edit of vectorEdits) {
+          const cls = getPageClassification(edit.pageNumber - 1);
+          if (cls?.type === 'scanned' || cls?.type === 'hybrid') {
+            pendingScanned.push({
+              id: `exp_v2s_${edit.pageNumber}_${Math.round(edit.pdfX)}`,
+              pageNumber: edit.pageNumber,
+              originalText: edit.originalText || '',
+              newText: edit.newText,
+              pdfX: edit.pdfX,
+              pdfY: edit.pdfY,
+              pdfWidth: edit.pdfWidth,
+              pdfHeight: edit.pdfHeight,
+              color: edit.color,
+              fontSize: edit.fontSize,
+              fontFamily: edit.fontFamily as any,
+              isDeleted: edit.isDeleted,
+            });
+          } else {
+            pureVectorEdits.push(edit);
+          }
+        }
+
+        if (pendingScanned.length > 0) {
+          setStatusMessage('Reconstructing scanned pages with local background preservation...');
+          activePdfData = await reconstructScannedDocumentWithEdits(activePdfData, pendingScanned);
+        }
+        if (pureVectorEdits.length > 0) {
+          setStatusMessage('Embedding vector text changes into document stream...');
+          activePdfData = await replaceVectorTextInPdf(activePdfData, pureVectorEdits);
+        }
+        await updateActiveDocument(activePdfData, 'Burn Text Edits for Export');
         setVectorEdits([]);
       }
 

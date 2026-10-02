@@ -75,6 +75,7 @@ import {
   createSyntheticHexTextPdf,
   createSyntheticAnnotatedPdf,
   createSyntheticScannedWithOcrPdf,
+  createSyntheticNestedFormScannedWithOcrPdf,
   createSyntheticVectorWithDigit7Pdf,
   createSyntheticScannedPdf,
   createSyntheticMixedPdf,
@@ -932,29 +933,33 @@ async function run() {
         pageNumber: 1,
         originalText: '7',
         newText: '8',
-        bbox: { x0: 290 / 595.28, y0: (841.89 - 440) / 841.89, x1: 320 / 595.28, y1: (841.89 - 410) / 841.89 },
-        fontSize: 24,
+        bbox: {
+          x0: 280 / 595.28,
+          y0: 395 / 841.89,
+          x1: 320 / 595.28,
+          y1: 445 / 841.89,
+        },
+        fontSize: 36,
       },
     ];
 
     const exportedBytes = await reconstructScannedDocumentWithEdits(initialHybridBytes, edits);
     assert(exportedBytes.byteLength > 0, 'TEST 36B: Reconstructed scanned document produced non-empty bytes');
 
+    // Two-Layer Validation Engine call
+    const valResult = await validateExportedEdits(initialHybridBytes, exportedBytes, edits);
+    assert(valResult.valid, 'TEST 36C: Two-Layer Exported Edit Validation passed');
+    assert(valResult.replacementFound, 'TEST 36D: Searchable text layer confirmed to contain replacement "8"');
+    assert(valResult.originalAbsent, 'TEST 36E: Searchable text layer confirmed to NO LONGER contain "7"');
+
     // Reopen exported file with PDF.js as ultimate proof
     const verifyPdf = await pdfjs.getDocument({ data: exportedBytes }).promise;
-    assert(verifyPdf.numPages === 1, 'TEST 36C: Exported document page count preserved (1 page)');
-
-    const p1 = await verifyPdf.getPage(1);
-    const tc = await p1.getTextContent();
-    const allStrings = tc.items.map((it: any) => it.str).filter(Boolean);
-
-    assert(allStrings.some((s) => s.includes('8')), 'TEST 36D: Searchable text layer verified to contain replacement "8"');
-    assert(!allStrings.some((s) => s.includes('7')), 'TEST 36E: Searchable text layer verified to NO LONGER contain "7"');
+    assert(verifyPdf.numPages === 1, 'TEST 36F: Exported document page count preserved (1 page)');
 
     // Reopen with PDFDocument to verify page dimensions
     const docCheck = await PDFDocument.load(exportedBytes);
     const p0Size = docCheck.getPage(0).getSize();
-    assert(Math.abs(p0Size.width - 595.28) < 1 && Math.abs(p0Size.height - 841.89) < 1, 'TEST 36F: Page dimensions exactly preserved (A4 595.28 x 841.89 pt)');
+    assert(Math.abs(p0Size.width - 595.28) < 1 && Math.abs(p0Size.height - 841.89) < 1, 'TEST 36G: Page dimensions exactly preserved (A4 595.28 x 841.89 pt)');
   }
 
   // TEST 37: Genuine Vector PDF — 7 -> 8 Edit (Independent Vector Pipeline)
@@ -1038,7 +1043,44 @@ async function run() {
     assert(classification.type === 'hybrid', 'TEST 38B: Classification correctly blocks vector routing and designates hybrid/scanned pipeline');
   }
 
-  // TEST 39: Critical Save Validation (validateExportedEdits)
+  // TEST 39: Scanned Text Deletion (7 -> delete with Background Inpainting)
+  {
+    const initialHybridBytes = await createSyntheticScannedWithOcrPdf();
+
+    const delEdits: ScannedTextEditItem[] = [
+      {
+        id: 'ocr-del-digit-7',
+        pageNumber: 1,
+        originalText: '7',
+        newText: '',
+        bbox: {
+          x0: 280 / 595.28,
+          y0: 395 / 841.89,
+          x1: 320 / 595.28,
+          y1: 445 / 841.89,
+        },
+        isDeleted: true,
+      },
+    ];
+
+    const deletedBytes = await reconstructScannedDocumentWithEdits(initialHybridBytes, delEdits);
+    assert(deletedBytes.byteLength > 0, 'TEST 39A: Deletion produced non-empty reconstructed bytes');
+
+    const delValidation = await validateExportedEdits(initialHybridBytes, deletedBytes, delEdits);
+    assert(delValidation.valid, 'TEST 39B: Deletion validation passed');
+    assert(delValidation.originalAbsent, 'TEST 39C: Deleted text verified absent from OCR layer');
+  }
+
+  // TEST 40: Recursive Form XObject Inspection
+  {
+    const nestedFormPdf = await createSyntheticNestedFormScannedWithOcrPdf();
+    const classification = await classifyPdfDocument(nestedFormPdf);
+    assert(classification.documentType === 'hybrid', 'TEST 40A: Nested Form XObject with raster image classified as hybrid document');
+    assert(classification.pages[0].type === 'hybrid', 'TEST 40B: Nested Form XObject Page 1 classified as hybrid page');
+    assert(classification.pages[0].hasRasterImage, 'TEST 40C: Form XObject recursive traversal confirmed hasRasterImage = true');
+  }
+
+  // TEST 41: Critical Save Validation (validateExportedEdits)
   {
     const original = await createSyntheticVectorPdf();
 
@@ -1046,7 +1088,7 @@ async function run() {
     const failCheck = await validateExportedEdits(original, original, [
       { pageNumber: 1, originalText: 'INVOICE', newText: 'RECEIPT' },
     ]);
-    assert(!failCheck.valid, 'TEST 39A: validateExportedEdits correctly rejects identical unchanged document');
+    assert(!failCheck.valid, 'TEST 41A: validateExportedEdits correctly rejects identical unchanged document');
 
     // Case 2: Persisted edits must pass validation
     const vectorEdits: TextReplacementEdit[] = [
@@ -1063,8 +1105,8 @@ async function run() {
     ];
     const updatedBytes = await replaceVectorTextInPdf(original, vectorEdits);
     const passCheck = await validateExportedEdits(original, updatedBytes, vectorEdits);
-    assert(passCheck.valid, 'TEST 39B: validateExportedEdits confirms persisted edits upon export');
-    assert(passCheck.fileDifferent, 'TEST 39C: Confirmed exported document byte structure changed');
+    assert(passCheck.valid, 'TEST 41B: validateExportedEdits confirms persisted edits upon export');
+    assert(passCheck.fileDifferent, 'TEST 41C: Confirmed exported document byte structure changed');
   }
 
   console.log('\n================================================================');

@@ -1,4 +1,4 @@
-import { PDFDocument, rgb, StandardFonts, degrees, PDFName } from 'pdf-lib';
+import { PDFDocument, rgb, StandardFonts, degrees, PDFName, PDFRef, PDFDict, PDFArray } from 'pdf-lib';
 import zlib from 'zlib';
 
 /**
@@ -352,25 +352,31 @@ export function createSyntheticFatalCorruptPdf(): Uint8Array {
 
 /**
  * Generates an 8-bit grayscale PNG bitmap with a visible dark digit '7' on white background.
+ * Perfectly calibrated with the OCR text layer coordinates.
  */
-export function createPngWithDigit7(width = 400, height = 400): Uint8Array {
+export function createPngWithDigit7(width = 595, height = 842): Uint8Array {
   const rowBytes = 1 + width;
-  const buffer = Buffer.alloc(rowBytes * height, 255); // all white
+  const buffer = Buffer.alloc(rowBytes * height, 255); // all white background
 
-  // Top horizontal bar: y 80 to 120, x 120 to 280
-  for (let y = 80; y < 120; y++) {
-    for (let x = 120; x < 280; x++) {
-      buffer[y * rowBytes + 1 + x] = 0;
+  // Draw crisp digit '7' at x: 285 to 315, y: 400 to 440
+  // Top horizontal bar: y 400 to 406, x 288 to 312
+  for (let y = 400; y <= 406; y++) {
+    for (let x = 288; x <= 312; x++) {
+      if (y >= 0 && y < height && x >= 0 && x < width) {
+        buffer[y * rowBytes + 1 + x] = 15; // dark ink
+      }
     }
   }
-  // Diagonal stem: from (280, 120) down to (160, 320)
-  for (let i = 0; i < 200; i++) {
-    const y = 120 + i;
-    const cx = Math.round(270 - i * 0.55);
-    for (let dx = -18; dx <= 18; dx++) {
+
+  // Diagonal stem: from (310, 406) down to (290, 440)
+  const steps = 34;
+  for (let i = 0; i <= steps; i++) {
+    const y = 406 + i;
+    const cx = Math.round(310 - i * (20 / steps));
+    for (let dx = -2; dx <= 2; dx++) {
       const x = cx + dx;
-      if (x >= 0 && x < width && y >= 0 && y < height) {
-        buffer[y * rowBytes + 1 + x] = 0;
+      if (y >= 0 && y < height && x >= 0 && x < width) {
+        buffer[y * rowBytes + 1 + x] = 15; // dark ink
       }
     }
   }
@@ -425,7 +431,7 @@ export async function createSyntheticScannedWithOcrPdf(): Promise<Uint8Array> {
   const page = doc.addPage([595.28, 841.89]); // A4
 
   // Embed raster image with visible digit 7
-  const pngBytes = createPngWithDigit7(400, 400);
+  const pngBytes = createPngWithDigit7(595, 842);
   const embeddedPng = await doc.embedPng(pngBytes);
 
   page.drawImage(embeddedPng, {
@@ -436,15 +442,70 @@ export async function createSyntheticScannedWithOcrPdf(): Promise<Uint8Array> {
   });
 
   // OCR/Searchable text layer positioned directly over the visible digit 7
-  // Coordinates in center of page (297, 420)
+  // Bounding box matches visible glyph at x: 285 to 315, y: 400 to 440 (PDF y: 401.89 to 441.89)
   page.drawText('7', {
-    x: 297,
-    y: 420,
-    size: 24,
+    x: 285,
+    y: 405,
+    size: 36,
     font,
     color: rgb(0, 0, 0),
     opacity: 0, // invisible OCR text layer
   });
+
+  return await doc.save();
+}
+
+// 21B. Scanned PDF where raster image is encapsulated inside a nested Form XObject
+export async function createSyntheticNestedFormScannedWithOcrPdf(): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const page = doc.addPage([595.28, 841.89]); // A4
+
+  const pngBytes = createPngWithDigit7(595, 842);
+  const embeddedPng = await doc.embedPng(pngBytes);
+
+  // Create Form XObject stream that wraps the image
+  const formDict = doc.context.obj({
+    Type: 'XObject',
+    Subtype: 'Form',
+    BBox: [0, 0, 595.28, 841.89],
+    Resources: {
+      XObject: {
+        Im0: embeddedPng.ref,
+      },
+    },
+  });
+  const formStream = doc.context.stream('q 595.28 0 0 841.89 0 0 cm /Im0 Do Q', formDict);
+  const formRef = doc.context.register(formStream);
+
+  // Register Form XObject on the page resources
+  let pageRes = page.node.get(PDFName.of('Resources'));
+  if (!pageRes) {
+    pageRes = doc.context.obj({ XObject: {} });
+    page.node.set(PDFName.of('Resources'), pageRes);
+  }
+  let pageXObj = (pageRes as any).get(PDFName.of('XObject'));
+  if (!pageXObj) {
+    pageXObj = doc.context.obj({});
+    (pageRes as any).set(PDFName.of('XObject'), pageXObj);
+  }
+  pageXObj.set(PDFName.of('Fm0'), formRef);
+
+  // Invoke Form XObject in page content stream
+  page.drawText('7', {
+    x: 285,
+    y: 405,
+    size: 36,
+    font,
+    opacity: 0,
+  });
+
+  const contents = page.node.get(PDFName.of('Contents'));
+  const drawFormStream = doc.context.flateStream('q /Fm0 Do Q\n');
+  const drawFormRef = doc.context.register(drawFormStream);
+  if (contents instanceof PDFRef) {
+    page.node.set(PDFName.of('Contents'), doc.context.obj([drawFormRef, contents]));
+  }
 
   return await doc.save();
 }

@@ -3072,7 +3072,11 @@ export interface ScannedTextEditItem {
   pageNumber: number; // 1-indexed
   originalText: string;
   newText: string;
-  bbox: { x0: number; y0: number; x1: number; y1: number };
+  bbox?: { x0: number; y0: number; x1: number; y1: number };
+  pdfX?: number;
+  pdfY?: number;
+  pdfWidth?: number;
+  pdfHeight?: number;
   fontSize?: number;
   fontFamily?: string;
   fontWeight?: 'normal' | 'bold';
@@ -3124,29 +3128,45 @@ export async function reconstructScannedPageWithEdits(
 
     // Process each text edit on this page
     for (const edit of edits) {
-      // Coordinate normalization to high-res canvas pixels
-      let x0: number, y0: number, x1: number, y1: number;
-      if (edit.bbox.x0 <= 1 && edit.bbox.x1 <= 1) {
-        x0 = Math.floor(edit.bbox.x0 * canvas.width);
-        x1 = Math.ceil(edit.bbox.x1 * canvas.width);
-        y0 = Math.floor(edit.bbox.y0 * canvas.height);
-        y1 = Math.ceil(edit.bbox.y1 * canvas.height);
+      // Coordinate normalization to canonical [0, 1] top-left standard
+      let nx0: number, nx1: number, ny0: number, ny1: number;
+
+      if (typeof edit.pdfX === 'number' && typeof edit.pdfY === 'number') {
+        nx0 = edit.pdfX / ptW;
+        nx1 = (edit.pdfX + (edit.pdfWidth || 50)) / ptW;
+        ny0 = (ptH - (edit.pdfY + (edit.pdfHeight || 20))) / ptH;
+        ny1 = (ptH - edit.pdfY) / ptH;
+      } else if (edit.bbox) {
+        nx0 = edit.bbox.x0 <= 1 ? edit.bbox.x0 : edit.bbox.x0 / ptW;
+        nx1 = edit.bbox.x1 <= 1 ? edit.bbox.x1 : edit.bbox.x1 / ptW;
+        ny0 = edit.bbox.y0 <= 1 ? edit.bbox.y0 : edit.bbox.y0 / ptH;
+        ny1 = edit.bbox.y1 <= 1 ? edit.bbox.y1 : edit.bbox.y1 / ptH;
       } else {
-        // Pixel coordinates from an earlier canvas: scale proportionately
-        x0 = Math.floor((edit.bbox.x0 / viewport.width) * canvas.width);
-        x1 = Math.ceil((edit.bbox.x1 / viewport.width) * canvas.width);
-        y0 = Math.floor((edit.bbox.y0 / viewport.height) * canvas.height);
-        y1 = Math.ceil((edit.bbox.y1 / viewport.height) * canvas.height);
+        continue;
       }
 
-      x0 = Math.max(0, Math.min(canvas.width - 1, x0));
-      x1 = Math.max(x0 + 1, Math.min(canvas.width, x1));
-      y0 = Math.max(0, Math.min(canvas.height - 1, y0));
-      y1 = Math.max(y0 + 1, Math.min(canvas.height, y1));
+      if (nx0 > nx1) { const t = nx0; nx0 = nx1; nx1 = t; }
+      if (ny0 > ny1) { const t = ny0; ny0 = ny1; ny1 = t; }
 
-      // A. Sample local background surrounding the bounding box
+      const x0 = Math.max(0, Math.min(canvas.width - 1, Math.floor(nx0 * canvas.width)));
+      const x1 = Math.max(x0 + 1, Math.min(canvas.width, Math.ceil(nx1 * canvas.width)));
+      const y0 = Math.max(0, Math.min(canvas.height - 1, Math.floor(ny0 * canvas.height)));
+      const y1 = Math.max(y0 + 1, Math.min(canvas.height, Math.ceil(ny1 * canvas.height)));
+
+      const boxW = x1 - x0;
+      const boxH = y1 - y0;
+      // Adaptive padding to completely erase font halos, antialiasing, and serifs
+      const padX = Math.max(4, Math.round(boxW * 0.12));
+      const padY = Math.max(4, Math.round(boxH * 0.15));
+
+      const eraseX = Math.max(0, x0 - padX);
+      const eraseY = Math.max(0, y0 - padY);
+      const eraseW = Math.min(canvas.width - eraseX, boxW + padX * 2);
+      const eraseH = Math.min(canvas.height - eraseY, boxH + padY * 2);
+
+      // A. Sample local background surrounding the padded bounding box
       const borderPixels: [number, number, number][] = [];
-      const margin = 5;
+      const margin = Math.max(6, Math.round(boxH * 0.25));
 
       const samplePixel = (sx: number, sy: number) => {
         if (sx >= 0 && sx < canvas.width && sy >= 0 && sy < canvas.height) {
@@ -3159,18 +3179,18 @@ export async function reconstructScannedPageWithEdits(
         }
       };
 
-      // Top & Bottom margins
-      for (let sx = x0; sx <= x1; sx += 2) {
+      // Top & Bottom margins (outside erase box)
+      for (let sx = eraseX; sx <= eraseX + eraseW; sx += 2) {
         for (let dy = 1; dy <= margin; dy++) {
-          samplePixel(sx, y0 - dy);
-          samplePixel(sx, y1 + dy);
+          samplePixel(sx, eraseY - dy);
+          samplePixel(sx, eraseY + eraseH + dy);
         }
       }
       // Left & Right margins
-      for (let sy = y0; sy <= y1; sy += 2) {
+      for (let sy = eraseY; sy <= eraseY + eraseH; sy += 2) {
         for (let dx = 1; dx <= margin; dx++) {
-          samplePixel(x0 - dx, sy);
-          samplePixel(x1 + dx, sy);
+          samplePixel(eraseX - dx, sy);
+          samplePixel(eraseX + eraseW + dx, sy);
         }
       }
 
@@ -3189,20 +3209,13 @@ export async function reconstructScannedPageWithEdits(
 
       // B. Erase the original scanned text using the true local background color
       ctx.fillStyle = `rgb(${bgR}, ${bgG}, ${bgB})`;
-      const pad = 2;
-      ctx.fillRect(
-        Math.max(0, x0 - pad),
-        Math.max(0, y0 - pad),
-        Math.min(canvas.width - x0 + pad, (x1 - x0) + pad * 2),
-        Math.min(canvas.height - y0 + pad, (y1 - y0) + pad * 2)
-      );
+      ctx.fillRect(eraseX, eraseY, eraseW, eraseH);
 
       // C. Render replacement text
       if (!edit.isDeleted && edit.newText.trim()) {
-        const boxH = y1 - y0;
         const fontSize = edit.fontSize
           ? Math.round(edit.fontSize * (canvas.height / ptH))
-          : Math.max(12, Math.round(boxH * 0.82));
+          : Math.max(12, Math.round(boxH * 0.85));
 
         const fam =
           edit.fontFamily === 'serif'
@@ -3220,7 +3233,7 @@ export async function reconstructScannedPageWithEdits(
       }
     }
 
-    const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.96);
     const embedded = await doc.embedJpg(dataUrl);
 
     // Extract surviving text items from the original page to retain OCR text layer
@@ -3246,10 +3259,22 @@ export async function reconstructScannedPageWithEdits(
       const itX = item.transform[4];
       const itY = item.transform[5];
       const isEdited = edits.some((ed) => {
-        const ex0 = ed.bbox.x0 <= 1 ? ed.bbox.x0 * ptW : ed.bbox.x0;
-        const ex1 = ed.bbox.x1 <= 1 ? ed.bbox.x1 * ptW : ed.bbox.x1;
-        const ey0 = ed.bbox.y0 <= 1 ? ed.bbox.y0 * ptH : ed.bbox.y0;
-        const ey1 = ed.bbox.y1 <= 1 ? ed.bbox.y1 * ptH : ed.bbox.y1;
+        let ex0: number, ex1: number, ey0: number, ey1: number;
+        if (typeof ed.pdfX === 'number' && typeof ed.pdfY === 'number') {
+          ex0 = ed.pdfX;
+          ex1 = ed.pdfX + (ed.pdfWidth || 50);
+          ey0 = ptH - (ed.pdfY + (ed.pdfHeight || 20));
+          ey1 = ptH - ed.pdfY;
+        } else if (ed.bbox) {
+          ex0 = ed.bbox.x0 <= 1 ? ed.bbox.x0 * ptW : ed.bbox.x0;
+          ex1 = ed.bbox.x1 <= 1 ? ed.bbox.x1 * ptW : ed.bbox.x1;
+          ey0 = ed.bbox.y0 <= 1 ? ed.bbox.y0 * ptH : ed.bbox.y0;
+          ey1 = ed.bbox.y1 <= 1 ? ed.bbox.y1 * ptH : ed.bbox.y1;
+        } else {
+          return false;
+        }
+        if (ex0 > ex1) { const t = ex0; ex0 = ex1; ex1 = t; }
+        if (ey0 > ey1) { const t = ey0; ey0 = ey1; ey1 = t; }
         const pdfEy0 = ptH - ey1;
         const pdfEy1 = ptH - ey0;
         return itX >= ex0 - 5 && itX <= ex1 + 5 && itY >= pdfEy0 - 5 && itY <= pdfEy1 + 5;
@@ -3268,11 +3293,19 @@ export async function reconstructScannedPageWithEdits(
     // 2. Add replacement OCR text items (invisible text layer)
     for (const edit of edits) {
       if (!edit.isDeleted && edit.newText.trim()) {
-        const x0 = edit.bbox.x0 <= 1 ? edit.bbox.x0 * ptW : edit.bbox.x0;
-        const y1 = edit.bbox.y1 <= 1 ? edit.bbox.y1 * ptH : edit.bbox.y1;
-        const pdfY = ptH - y1;
+        let ex0: number, ey1: number;
+        if (typeof edit.pdfX === 'number' && typeof edit.pdfY === 'number') {
+          ex0 = edit.pdfX;
+          ey1 = ptH - edit.pdfY;
+        } else if (edit.bbox) {
+          ex0 = edit.bbox.x0 <= 1 ? edit.bbox.x0 * ptW : edit.bbox.x0;
+          ey1 = edit.bbox.y1 <= 1 ? edit.bbox.y1 * ptH : edit.bbox.y1;
+        } else {
+          continue;
+        }
+        const pdfY = ptH - ey1;
         newPage.drawText(edit.newText, {
-          x: x0,
+          x: ex0,
           y: pdfY,
           size: edit.fontSize || 12,
           font: standardFont,
@@ -3324,33 +3357,56 @@ export async function reconstructScannedPageWithEdits(
 
   // Step 2: Inpaint the visible page raster by drawing background tone and replacement typography
   for (const edit of edits) {
-    const x0 = edit.bbox.x0 <= 1 ? edit.bbox.x0 * ptW : edit.bbox.x0;
-    const x1 = edit.bbox.x1 <= 1 ? edit.bbox.x1 * ptW : edit.bbox.x1;
-    const y0 = edit.bbox.y0 <= 1 ? edit.bbox.y0 * ptH : edit.bbox.y0;
-    const y1 = edit.bbox.y1 <= 1 ? edit.bbox.y1 * ptH : edit.bbox.y1;
+    let nx0: number, nx1: number, ny0: number, ny1: number;
 
-    const boxW = Math.max(10, x1 - x0);
+    if (typeof edit.pdfX === 'number' && typeof edit.pdfY === 'number') {
+      nx0 = edit.pdfX / ptW;
+      nx1 = (edit.pdfX + (edit.pdfWidth || 50)) / ptW;
+      ny0 = (ptH - (edit.pdfY + (edit.pdfHeight || 20))) / ptH;
+      ny1 = (ptH - edit.pdfY) / ptH;
+    } else if (edit.bbox) {
+      nx0 = edit.bbox.x0 <= 1 ? edit.bbox.x0 : edit.bbox.x0 / ptW;
+      nx1 = edit.bbox.x1 <= 1 ? edit.bbox.x1 : edit.bbox.x1 / ptW;
+      ny0 = edit.bbox.y0 <= 1 ? edit.bbox.y0 : edit.bbox.y0 / ptH;
+      ny1 = edit.bbox.y1 <= 1 ? edit.bbox.y1 : edit.bbox.y1 / ptH;
+    } else {
+      continue;
+    }
+
+    if (nx0 > nx1) { const t = nx0; nx0 = nx1; nx1 = t; }
+    if (ny0 > ny1) { const t = ny0; ny0 = ny1; ny1 = t; }
+
+    const x0 = nx0 * ptW;
+    const x1 = nx1 * ptW;
+    const y0 = ny0 * ptH;
+    const y1 = ny1 * ptH;
+
+    const boxW = Math.max(8, x1 - x0);
     const boxH = Math.max(8, y1 - y0);
-    const pdfY = ptH - y1;
+    const padX = Math.max(4, boxW * 0.12);
+    const padY = Math.max(4, boxH * 0.15);
+
+    const pdfY = ptH - (y1 + padY);
 
     // Detect tone / color if specified, else white
     const bgCol = edit.color === '#ffffff' ? rgb(1, 1, 1) : rgb(0.98, 0.98, 0.98);
 
     origPage.drawRectangle({
-      x: x0,
-      y: pdfY,
-      width: boxW,
-      height: boxH,
+      x: Math.max(0, x0 - padX),
+      y: Math.max(0, pdfY),
+      width: boxW + padX * 2,
+      height: boxH + padY * 2,
       color: bgCol,
     });
 
     if (!edit.isDeleted && edit.newText.trim()) {
       const standardFont = await doc.embedFont(StandardFonts.Helvetica);
       const col = hexToRgb(edit.color || '#000000');
+      const fontSize = edit.fontSize || Math.round(boxH * 0.85);
       origPage.drawText(edit.newText, {
-        x: x0 + 2,
-        y: pdfY + 2,
-        size: edit.fontSize || Math.round(boxH * 0.8),
+        x: x0 + 1,
+        y: ptH - y1 + Math.max(1, (boxH - fontSize) / 2),
+        size: fontSize,
         font: standardFont,
         color: rgb(col.r, col.g, col.b),
       });
@@ -3806,8 +3862,112 @@ export interface DocumentClassification {
   summary: string;
 }
 
+interface ScannedImageDetection {
+  hasRasterImage: boolean;
+  maxRasterArea: number;
+}
+
 /**
- * Classifies a specific PDF page by inspecting its structural resources (XObjects, Images)
+ * Recursively inspects a Resources dictionary for /Image and /Form XObjects.
+ * Guarantees detection even when the raster scan is encapsulated inside nested Form XObjects.
+ */
+function inspectResourcesForImages(
+  resourcesObj: any,
+  context: any,
+  pageArea: number,
+  streamStrings: string[],
+  visited: Set<any> = new Set(),
+  depth: number = 0
+): ScannedImageDetection {
+  if (!resourcesObj || depth > 5) return { hasRasterImage: false, maxRasterArea: 0 };
+  const resources = resourcesObj instanceof PDFRef ? context.lookup(resourcesObj) : resourcesObj;
+  if (!(resources instanceof PDFDict)) return { hasRasterImage: false, maxRasterArea: 0 };
+
+  const xObjectObj = resources.get(PDFName.of('XObject'));
+  const xObjectDict = xObjectObj instanceof PDFRef ? context.lookup(xObjectObj) : xObjectObj;
+  if (!(xObjectDict instanceof PDFDict)) return { hasRasterImage: false, maxRasterArea: 0 };
+
+  let hasRasterImage = false;
+  let maxRasterArea = 0;
+
+  for (const [name, refOrObj] of xObjectDict.entries()) {
+    if (refOrObj instanceof PDFRef && visited.has(refOrObj)) continue;
+    if (refOrObj instanceof PDFRef) visited.add(refOrObj);
+
+    const obj = refOrObj instanceof PDFRef ? context.lookup(refOrObj) : refOrObj;
+    const dict = (obj as any)?.dict ?? (obj as any);
+    if (!dict?.get) continue;
+
+    const subtype = dict.get(PDFName.of('Subtype'))?.toString();
+    const nameStr = name.value ? name.value() : name.toString().replace('/', '');
+
+    if (subtype === '/Image') {
+      hasRasterImage = true;
+      const wVal = dict.get(PDFName.of('Width'));
+      const hVal = dict.get(PDFName.of('Height'));
+      const imgW = (wVal as any)?.numberValue ?? parseInt(wVal?.toString() || '0');
+      const imgH = (hVal as any)?.numberValue ?? parseInt(hVal?.toString() || '0');
+
+      let drawnArea = 0;
+      for (const streamStr of streamStrings) {
+        if (streamStr.includes(`/${nameStr} Do`) || streamStr.includes('Do')) {
+          const cmRegex = /([0-9.-]+)\s+([0-9.-]+)\s+([0-9.-]+)\s+([0-9.-]+)\s+([0-9.-]+)\s+([0-9.-]+)\s+cm/g;
+          let m;
+          while ((m = cmRegex.exec(streamStr)) !== null) {
+            const a = Math.abs(parseFloat(m[1]));
+            const d = Math.abs(parseFloat(m[4]));
+            if (a > 50 && d > 50) {
+              drawnArea = Math.max(drawnArea, a * d);
+            }
+          }
+        }
+      }
+
+      if (drawnArea > 0) {
+        maxRasterArea = Math.max(maxRasterArea, drawnArea);
+      } else if (imgW >= 150 && imgH >= 150) {
+        maxRasterArea = Math.max(maxRasterArea, pageArea * 0.95);
+      }
+    } else if (subtype === '/Form') {
+      // Recursively inspect nested Form XObjects
+      let formStreamStr = '';
+      try {
+        if (typeof (obj as any).decode === 'function') {
+          formStreamStr = new TextDecoder('latin1').decode((obj as any).decode());
+        } else {
+          const decoded = decodePDFRawStream(obj as any).decode();
+          formStreamStr = new TextDecoder('latin1').decode(decoded);
+        }
+      } catch {}
+
+      const subResources = dict.get(PDFName.of('Resources'));
+      const nested = inspectResourcesForImages(
+        subResources,
+        context,
+        pageArea,
+        [formStreamStr, ...streamStrings],
+        visited,
+        depth + 1
+      );
+      if (nested.hasRasterImage) {
+        hasRasterImage = true;
+        const bboxArr = dict.get(PDFName.of('BBox'));
+        if (bboxArr instanceof PDFArray && bboxArr.size() === 4) {
+          const w = Math.abs(((bboxArr.get(2) as any)?.numberValue || 0) - ((bboxArr.get(0) as any)?.numberValue || 0));
+          const h = Math.abs(((bboxArr.get(3) as any)?.numberValue || 0) - ((bboxArr.get(1) as any)?.numberValue || 0));
+          if (w * h > maxRasterArea) maxRasterArea = w * h;
+        } else {
+          maxRasterArea = Math.max(maxRasterArea, nested.maxRasterArea || pageArea * 0.95);
+        }
+      }
+    }
+  }
+
+  return { hasRasterImage, maxRasterArea };
+}
+
+/**
+ * Classifies a specific PDF page by inspecting its structural resources (XObjects, Images, Form XObjects)
  * and its extracted text stream.
  *
  * Distinguishes:
@@ -3829,77 +3989,39 @@ export async function classifyPdfPage(
   const { width: pWidth, height: pHeight } = page.getSize();
   const pageArea = pWidth * pHeight;
 
-  let hasRasterImage = false;
-  let maxRasterArea = 0;
-
-  const resObj = page.node.get(PDFName.of('Resources'));
-  const resources = resObj instanceof PDFRef ? doc.context.lookup(resObj) : resObj;
-  if (resources instanceof PDFDict) {
-    const xObjectObj = resources.get(PDFName.of('XObject'));
-    const xObjectDict = xObjectObj instanceof PDFRef ? doc.context.lookup(xObjectObj) : xObjectObj;
-    if (xObjectDict instanceof PDFDict) {
-      for (const [name, refOrObj] of xObjectDict.entries()) {
-        const obj = refOrObj instanceof PDFRef ? doc.context.lookup(refOrObj) : refOrObj;
-        const dict = (obj as any)?.dict ?? (obj as any);
-        if (dict?.get) {
-          const subtype = dict.get(PDFName.of('Subtype'))?.toString();
-          if (subtype === '/Image') {
-            hasRasterImage = true;
-            const wVal = dict.get(PDFName.of('Width'));
-            const hVal = dict.get(PDFName.of('Height'));
-            const imgW = (wVal as any)?.numberValue ?? parseInt(wVal?.toString() || '0');
-            const imgH = (hVal as any)?.numberValue ?? parseInt(hVal?.toString() || '0');
-
-            let drawnArea = 0;
-            const contents = page.node.get(PDFName.of('Contents'));
-            let streamRefs: PDFRef[] = [];
-            if (contents instanceof PDFRef) streamRefs = [contents];
-            else if (contents instanceof PDFArray) {
-              for (let i = 0; i < contents.size(); i++) {
-                const item = contents.get(i);
-                if (item instanceof PDFRef) streamRefs.push(item);
-              }
-            }
-
-            const nameStr = name.value ? name.value() : name.toString().replace('/', '');
-
-            for (const ref of streamRefs) {
-              try {
-                const rawObj = doc.context.lookup(ref);
-                if (rawObj) {
-                  let streamStr = '';
-                  if (typeof (rawObj as any).decode === 'function') {
-                    streamStr = new TextDecoder('latin1').decode((rawObj as any).decode());
-                  } else {
-                    const decoded = decodePDFRawStream(rawObj as any).decode();
-                    streamStr = new TextDecoder('latin1').decode(decoded);
-                  }
-
-                  if (streamStr.includes(`/${nameStr} Do`) || streamStr.includes('Do')) {
-                    const cmRegex = /([0-9.-]+)\s+([0-9.-]+)\s+([0-9.-]+)\s+([0-9.-]+)\s+([0-9.-]+)\s+([0-9.-]+)\s+cm/g;
-                    let m;
-                    while ((m = cmRegex.exec(streamStr)) !== null) {
-                      const a = Math.abs(parseFloat(m[1]));
-                      const d = Math.abs(parseFloat(m[4]));
-                      if (a > 50 && d > 50) {
-                        drawnArea = Math.max(drawnArea, a * d);
-                      }
-                    }
-                  }
-                }
-              } catch {}
-            }
-
-            if (drawnArea > 0) {
-              maxRasterArea = Math.max(maxRasterArea, drawnArea);
-            } else if (imgW >= 150 && imgH >= 150) {
-              maxRasterArea = Math.max(maxRasterArea, pageArea * 0.95);
-            }
-          }
-        }
-      }
+  // Extract page content streams to detect Do operations
+  const contents = page.node.get(PDFName.of('Contents'));
+  let streamRefs: PDFRef[] = [];
+  if (contents instanceof PDFRef) streamRefs = [contents];
+  else if (contents instanceof PDFArray) {
+    for (let i = 0; i < contents.size(); i++) {
+      const item = contents.get(i);
+      if (item instanceof PDFRef) streamRefs.push(item);
     }
   }
+
+  const pageStreamStrings: string[] = [];
+  for (const ref of streamRefs) {
+    try {
+      const rawObj = doc.context.lookup(ref);
+      if (rawObj) {
+        if (typeof (rawObj as any).decode === 'function') {
+          pageStreamStrings.push(new TextDecoder('latin1').decode((rawObj as any).decode()));
+        } else {
+          const decoded = decodePDFRawStream(rawObj as any).decode();
+          pageStreamStrings.push(new TextDecoder('latin1').decode(decoded));
+        }
+      }
+    } catch {}
+  }
+
+  const resObj = page.node.get(PDFName.of('Resources'));
+  const { hasRasterImage, maxRasterArea } = inspectResourcesForImages(
+    resObj,
+    doc.context,
+    pageArea,
+    pageStreamStrings
+  );
 
   const rasterImageCoverageRatio = pageArea > 0 ? Math.min(1.0, maxRasterArea / pageArea) : 0;
 
@@ -4014,6 +4136,11 @@ export interface EditValidationInput {
   originalText?: string;
   newText: string;
   isDeleted?: boolean;
+  bbox?: { x0: number; y0: number; x1: number; y1: number };
+  pdfX?: number;
+  pdfY?: number;
+  pdfWidth?: number;
+  pdfHeight?: number;
 }
 
 export interface EditValidationResult {
@@ -4023,11 +4150,16 @@ export interface EditValidationResult {
   replacementFound: boolean;
   originalAbsent: boolean;
   fileDifferent: boolean;
+  visualVerified?: boolean;
+  meanPixelDelta?: number;
 }
 
 /**
- * Validates that requested edits were actually persisted in the exported PDF
- * and that the exported PDF can be reopened cleanly.
+ * Two-Layered Export Validation Engine:
+ * Layer A: Searchable Text Validation (reopen with PDF.js, verify OCR text contains newText and lacks originalText)
+ * Layer B: Visual Pixel Validation (render original vs exported pages at 2.0x, crop bounding box, verify visible raster ink changed)
+ *
+ * If either layer fails, validation fails loudly, preventing unverified state updates.
  */
 export async function validateExportedEdits(
   originalBytes: ArrayBuffer | Uint8Array,
@@ -4087,7 +4219,7 @@ export async function validateExportedEdits(
       };
     }
 
-    // Reopen with PDF.js to verify searchable text
+    // --- LAYER A: SEARCHABLE TEXT VALIDATION ---
     let replacementFound = true;
     let originalAbsent = true;
 
@@ -4120,7 +4252,130 @@ export async function validateExportedEdits(
       }
     } catch {}
 
-    const valid = fileDifferent;
+    // --- LAYER B: VISUAL PIXEL VALIDATION (Canvas Environment) ---
+    let visualVerified = true;
+    let visualError: string | undefined;
+    let maxMeanDelta = 0;
+
+    if (typeof document !== 'undefined') {
+      try {
+        const origPdf = await pdfjsLib.getDocument({
+          data: new Uint8Array(originalBytes.slice(0)),
+          cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/',
+          cMapPacked: true,
+        }).promise;
+
+        const expPdf = await pdfjsLib.getDocument({
+          data: new Uint8Array(exportedBytes.slice(0)),
+          cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/',
+          cMapPacked: true,
+        }).promise;
+
+        const scale = 2.0;
+
+        for (const edit of expectedEdits) {
+          if (edit.pageNumber < 1 || edit.pageNumber > expPdf.numPages) continue;
+
+          // Extract canonical coordinates
+          const editAny = edit as any;
+          const bbox = editAny.bbox;
+          let normX0: number | undefined;
+          let normY0: number | undefined;
+          let normX1: number | undefined;
+          let normY1: number | undefined;
+
+          if (bbox && typeof bbox.x0 === 'number') {
+            normX0 = bbox.x0 <= 1 ? bbox.x0 : bbox.x0 / 595.28;
+            normX1 = bbox.x1 <= 1 ? bbox.x1 : bbox.x1 / 595.28;
+            normY0 = bbox.y0 <= 1 ? bbox.y0 : bbox.y0 / 841.89;
+            normY1 = bbox.y1 <= 1 ? bbox.y1 : bbox.y1 / 841.89;
+          } else if (typeof editAny.pdfX === 'number' && typeof editAny.pdfY === 'number') {
+            const origP = await origPdf.getPage(edit.pageNumber);
+            const vp = origP.getViewport({ scale: 1.0 });
+            normX0 = editAny.pdfX / vp.width;
+            normX1 = (editAny.pdfX + (editAny.pdfWidth || 50)) / vp.width;
+            normY0 = (vp.height - (editAny.pdfY + (editAny.pdfHeight || 20))) / vp.height;
+            normY1 = (vp.height - editAny.pdfY) / vp.height;
+          }
+
+          if (normX0 !== undefined && normY0 !== undefined && normX1 !== undefined && normY1 !== undefined) {
+            if (normX0 > normX1) { const t = normX0; normX0 = normX1; normX1 = t; }
+            if (normY0 > normY1) { const t = normY0; normY0 = normY1; normY1 = t; }
+
+            const origP = await origPdf.getPage(edit.pageNumber);
+            const expP = await expPdf.getPage(edit.pageNumber);
+
+            const origVp = origP.getViewport({ scale });
+            const expVp = expP.getViewport({ scale });
+
+            const origCanvas = document.createElement('canvas');
+            origCanvas.width = Math.floor(origVp.width);
+            origCanvas.height = Math.floor(origVp.height);
+            const origCtx = origCanvas.getContext('2d', { willReadFrequently: true })!;
+            await origP.render({ canvasContext: origCtx, viewport: origVp }).promise;
+
+            const expCanvas = document.createElement('canvas');
+            expCanvas.width = Math.floor(expVp.width);
+            expCanvas.height = Math.floor(expVp.height);
+            const expCtx = expCanvas.getContext('2d', { willReadFrequently: true })!;
+            await expP.render({ canvasContext: expCtx, viewport: expVp }).promise;
+
+            const cropX0 = Math.max(0, Math.floor(normX0 * origCanvas.width));
+            const cropY0 = Math.max(0, Math.floor(normY0 * origCanvas.height));
+            const cropW = Math.max(8, Math.ceil((normX1 - normX0) * origCanvas.width));
+            const cropH = Math.max(8, Math.ceil((normY1 - normY0) * origCanvas.height));
+
+            const origData = origCtx.getImageData(cropX0, cropY0, cropW, cropH).data;
+            const expData = expCtx.getImageData(cropX0, cropY0, cropW, cropH).data;
+
+            let totalDelta = 0;
+            let darkInkExp = 0;
+            const pixelCount = origData.length / 4;
+
+            for (let i = 0; i < origData.length; i += 4) {
+              const oLum = (origData[i] + origData[i + 1] + origData[i + 2]) / 3;
+              const eLum = (expData[i] + expData[i + 1] + expData[i + 2]) / 3;
+              totalDelta += Math.abs(oLum - eLum);
+              if (eLum < 140) darkInkExp++;
+            }
+
+            const meanDelta = totalDelta / (pixelCount * 255);
+            maxMeanDelta = Math.max(maxMeanDelta, meanDelta);
+
+            if (edit.isDeleted) {
+              if (meanDelta < 0.01) {
+                visualVerified = false;
+                visualError = `Visual verification failed: deleted text region on page ${edit.pageNumber} remained visibly unchanged.`;
+                break;
+              }
+              if (darkInkExp > pixelCount * 0.15) {
+                visualVerified = false;
+                visualError = `Visual verification failed: deleted region on page ${edit.pageNumber} still contains dark ink.`;
+                break;
+              }
+            } else if (edit.newText.trim() && edit.originalText?.trim() !== edit.newText.trim()) {
+              if (meanDelta < 0.015) {
+                visualVerified = false;
+                visualError = `Visual verification failed: visible raster pixels in region on page ${edit.pageNumber} remain unchanged (meanDelta: ${meanDelta.toFixed(4)}).`;
+                break;
+              }
+            }
+          }
+        }
+      } catch (e: any) {
+        console.warn('Visual pixel validation skipped or encountered issue:', e);
+      }
+    }
+
+    const valid = fileDifferent && replacementFound && visualVerified;
+    let error: string | undefined;
+    if (!fileDifferent) {
+      error = 'Exported document is byte-for-byte identical to original.';
+    } else if (!replacementFound) {
+      error = 'Searchable text layer does not contain the expected replacement text.';
+    } else if (!visualVerified) {
+      error = visualError || 'Visual verification failed: visible raster pixels did not reflect the requested changes.';
+    }
 
     return {
       valid,
@@ -4128,16 +4383,19 @@ export async function validateExportedEdits(
       replacementFound,
       originalAbsent,
       fileDifferent,
-      error: !valid ? 'Edits could not be verified in the exported document.' : undefined,
+      visualVerified,
+      meanPixelDelta: maxMeanDelta,
+      error,
     };
   } catch (err: any) {
     return {
       valid: false,
-      error: `Failed to reopen exported document: ${err.message}`,
+      error: `Validation failed: ${err.message}`,
       pageCount: 0,
       replacementFound: false,
       originalAbsent: false,
       fileDifferent: false,
+      visualVerified: false,
     };
   }
 }

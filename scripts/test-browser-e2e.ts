@@ -276,6 +276,64 @@ async function runBrowserE2E() {
       const exportedDoc = await PDFDocument.load(exportedScannedBytes);
       const xobj = exportedDoc.getPage(0).node.Resources()?.get(PDFName.of('XObject'));
       assert(xobj instanceof PDFDict, 'E2E 11J: Reconstructed page retains raster image XObject with tone-matched inpainting');
+
+      // E2E 11K & 11L: PIXEL-LEVEL REGRESSION VERIFICATION IN REAL CHROME
+      const origB64 = Buffer.from(fs.readFileSync(scannedOcrPdfPath)).toString('base64');
+      const expB64 = Buffer.from(exportedScannedBytes).toString('base64');
+
+      const pixelDiff = await scannedPage.evaluate(`
+        (async () => {
+          const render = async (b64) => {
+            const raw = atob(b64);
+            const u8 = new Uint8Array(raw.length);
+            for (let i = 0; i < raw.length; i++) u8[i] = raw.charCodeAt(i);
+            const pdf = await window.pdfjsLib.getDocument({ data: u8 }).promise;
+            const p = await pdf.getPage(1);
+            const vp = p.getViewport({ scale: 2.0 });
+            const c = document.createElement('canvas');
+            c.width = vp.width;
+            c.height = vp.height;
+            const ctx = c.getContext('2d');
+            await p.render({ canvasContext: ctx, viewport: vp }).promise;
+            return { ctx: ctx, vp: vp };
+          };
+
+          const o = await render("${origB64}");
+          const e = await render("${expB64}");
+
+          const x0 = Math.floor((280 / 595.28) * o.vp.width);
+          const y0 = Math.floor((395 / 841.89) * o.vp.height);
+          const w = Math.ceil(((320 - 280) / 595.28) * o.vp.width);
+          const h = Math.ceil(((445 - 395) / 841.89) * o.vp.height);
+
+          const oData = o.ctx.getImageData(x0, y0, w, h).data;
+          const eData = e.ctx.getImageData(x0, y0, w, h).data;
+
+          let oDark = 0, eDark = 0;
+          let totalDiff = 0;
+          const count = oData.length / 4;
+
+          for (let i = 0; i < oData.length; i += 4) {
+            const oLum = (oData[i] + oData[i + 1] + oData[i + 2]) / 3;
+            const eLum = (eData[i] + eData[i + 1] + eData[i + 2]) / 3;
+            if (oLum < 120) oDark++;
+            if (eLum < 120) eDark++;
+            totalDiff += Math.abs(oLum - eLum);
+          }
+
+          return {
+            count: count,
+            origDark: oDark,
+            expDark: eDark,
+            meanDelta: totalDiff / (count * 255)
+          };
+        })()
+      `);
+
+      const pDiff = pixelDiff as any;
+      assert(pDiff.origDark >= 50, `E2E 11K: Original fixture confirmed to contain visible glyph ink (${pDiff.origDark} dark pixels)`);
+      assert(pDiff.meanDelta >= 0.03, `E2E 11L: Pixel-level verification PASSED — visible raster pixels changed (meanDelta: ${pDiff.meanDelta.toFixed(4)})`);
+      assert(pDiff.expDark >= 50, `E2E 11M: Pixel-level verification PASSED — replacement glyph ink is visually present (${pDiff.expDark} dark pixels)`);
     } finally {
       await scannedContext.close();
     }
