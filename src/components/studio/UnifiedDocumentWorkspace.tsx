@@ -43,7 +43,7 @@ import {
 } from 'lucide-react';
 import { usePdf } from '../../context/PdfContext';
 import { Button } from '../ui/Button';
-import { cn, formatBytes } from '../../lib/utils';
+import { cn, formatBytes, downloadBlob } from '../../lib/utils';
 import {
   renderPageToCanvas,
   extractPageTextItems,
@@ -57,6 +57,9 @@ import {
   embedSignatureOnPdf,
   convertPdfToImages,
   extractAllTextFromPdf,
+  reconstructScannedPageWithEdits,
+  reconstructScannedDocumentWithEdits,
+  ScannedTextEditItem,
 } from '../../lib/pdf/pdf-engine';
 import { runDetailedOcrOnImageDataUrl, OcrLineItem, OcrWordItem } from '../../lib/pdf/pdf-engine';
 import { AnnotationItem, AnnotationType } from '../../types/pdf';
@@ -152,9 +155,8 @@ export const UnifiedDocumentWorkspace: React.FC<UnifiedDocumentWorkspaceProps> =
   const [ocrReplacementText, setOcrReplacementText] = useState('');
   const [inlineEditingOcrId, setInlineEditingOcrId] = useState<string | null>(null);
   const [inlineOcrValue, setInlineOcrValue] = useState<string>('');
-  const [scannedEdits, setScannedEdits] = useState<
-    { id: string; originalText: string; newText: string; bbox: { x0: number; y0: number; x1: number; y1: number } }[]
-  >([]);
+  const [scannedEdits, setScannedEdits] = useState<ScannedTextEditItem[]>([]);
+  const [isSavingScanned, setIsSavingScanned] = useState<boolean>(false);
 
   // --- ANNOTATIONS & REDACTION STATE ---
   const [annTool, setAnnTool] = useState<AnnotationType>('text');
@@ -519,6 +521,7 @@ export const UnifiedDocumentWorkspace: React.FC<UnifiedDocumentWorkspaceProps> =
       ...prev.filter((e) => e.id !== w.id),
       {
         id: w.id,
+        pageNumber: currentPageIndex + 1,
         originalText: w.text,
         newText: newText,
         bbox: w.bbox,
@@ -532,9 +535,11 @@ export const UnifiedDocumentWorkspace: React.FC<UnifiedDocumentWorkspaceProps> =
       ...prev.filter((e) => e.id !== selectedOcrWord.id),
       {
         id: selectedOcrWord.id,
+        pageNumber: currentPageIndex + 1,
         originalText: selectedOcrWord.text,
         newText: '',
         bbox: selectedOcrWord.bbox,
+        isDeleted: true,
       },
     ]);
     setSelectedOcrWord(null);
@@ -542,16 +547,45 @@ export const UnifiedDocumentWorkspace: React.FC<UnifiedDocumentWorkspaceProps> =
 
   const handleApplyScannedWordEdit = () => {
     if (!selectedOcrWord) return;
+    const isDeleted = !ocrReplacementText.trim();
     setScannedEdits((prev) => [
       ...prev.filter((e) => e.id !== selectedOcrWord.id),
       {
         id: selectedOcrWord.id,
+        pageNumber: currentPageIndex + 1,
         originalText: selectedOcrWord.text,
         newText: ocrReplacementText,
         bbox: selectedOcrWord.bbox,
+        isDeleted,
       },
     ]);
     setSelectedOcrWord(null);
+  };
+
+  const handleSaveAllScannedEdits = async () => {
+    if (!currentFile || scannedEdits.length === 0) return;
+    try {
+      setIsSavingScanned(true);
+      setStatusMessage('Reconstructing scanned page with content-aware background preservation...');
+      const editsWithPage: ScannedTextEditItem[] = scannedEdits.map((ed) => ({
+        ...ed,
+        pageNumber: currentPageIndex + 1,
+      }));
+      const updated = await reconstructScannedPageWithEdits(
+        currentFile.data,
+        currentPageIndex + 1,
+        editsWithPage
+      );
+      await updateActiveDocument(updated, 'Edit Scanned Text');
+      setScannedEdits([]);
+      setSelectedOcrWord(null);
+      setStatusMessage('Scanned page reconstructed successfully. Original text removed & local background preserved.');
+    } catch (err) {
+      console.error('Scanned edit save error:', err);
+      setStatusMessage('Error reconstructing scanned text.');
+    } finally {
+      setIsSavingScanned(false);
+    }
   };
 
   // --- ANNOTATION MOUSE HANDLERS ---
@@ -703,25 +737,43 @@ export const UnifiedDocumentWorkspace: React.FC<UnifiedDocumentWorkspaceProps> =
       setIsExporting(true);
       setStatusMessage('Preparing high-quality export bundle...');
 
+      let activePdfData: ArrayBuffer | Uint8Array = currentFile.data;
+
+      // Automatically burn any pending scanned text edits first
+      if (scannedEdits.length > 0) {
+        setStatusMessage('Reconstructing scanned pages with local background preservation...');
+        const editsWithPage: ScannedTextEditItem[] = scannedEdits.map((ed) => ({
+          ...ed,
+          pageNumber: currentPageIndex + 1,
+        }));
+        activePdfData = await reconstructScannedPageWithEdits(
+          activePdfData,
+          currentPageIndex + 1,
+          editsWithPage
+        );
+        await updateActiveDocument(activePdfData, 'Burn Scanned Edits for Export');
+        setScannedEdits([]);
+      }
+
+      // Automatically burn any pending vector edits
+      if (vectorEdits.length > 0) {
+        setStatusMessage('Embedding vector text changes into document stream...');
+        activePdfData = await replaceVectorTextInPdf(activePdfData, vectorEdits);
+        await updateActiveDocument(activePdfData, 'Burn Vector Edits for Export');
+        setVectorEdits([]);
+      }
+
       if (exportFormat === 'pdf') {
-        const blob = new Blob([currentFile.data], { type: 'application/pdf' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = exportName.endsWith('.pdf') ? exportName : `${exportName}.pdf`;
-        a.click();
-        URL.revokeObjectURL(url);
+        const blob = new Blob([activePdfData as any], { type: 'application/pdf' });
+        const fileName = exportName.endsWith('.pdf') ? exportName : `${exportName}.pdf`;
+        await downloadBlob(blob, fileName);
       } else if (exportFormat === 'text') {
-        const textObj = await extractAllTextFromPdf(currentFile.data);
+        const textObj = await extractAllTextFromPdf(activePdfData);
         const blob = new Blob([textObj.fullText], { type: 'text/plain;charset=utf-8' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `${exportName.replace(/\.[^.]+$/, '')}.txt`;
-        a.click();
-        URL.revokeObjectURL(url);
+        const fileName = `${exportName.replace(/\.[^.]+$/, '')}.txt`;
+        await downloadBlob(blob, fileName);
       } else if (exportFormat === 'images-zip') {
-        const images = await convertPdfToImages(currentFile.data, 'image/jpeg');
+        const images = await convertPdfToImages(activePdfData, 'image/jpeg');
         const JSZip = (await import('jszip')).default;
         const zip = new JSZip();
         images.forEach((img, idx) => {
@@ -729,12 +781,8 @@ export const UnifiedDocumentWorkspace: React.FC<UnifiedDocumentWorkspaceProps> =
           zip.file(`page-${idx + 1}.jpg`, base64, { base64: true });
         });
         const zipBlob = await zip.generateAsync({ type: 'blob' });
-        const url = URL.createObjectURL(zipBlob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `${exportName.replace(/\.[^.]+$/, '')}-images.zip`;
-        a.click();
-        URL.revokeObjectURL(url);
+        const fileName = `${exportName.replace(/\.[^.]+$/, '')}-images.zip`;
+        await downloadBlob(zipBlob, fileName);
       }
 
       setIsExportOpen(false);
@@ -1403,6 +1451,26 @@ export const UnifiedDocumentWorkspace: React.FC<UnifiedDocumentWorkspaceProps> =
                         <Check className="w-3.5 h-3.5" /> Replace Word
                       </Button>
                     </div>
+                  </div>
+                )}
+
+                {/* Pending Scanned Edits & Burn Button */}
+                {scannedEdits.length > 0 && (
+                  <div className="space-y-2 pt-3 border-t border-slate-100 dark:border-slate-800">
+                    <div className="flex items-center justify-between text-xs font-semibold">
+                      <span>Pending Scanned Edits</span>
+                      <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 text-[10px] font-bold">
+                        {scannedEdits.length}
+                      </span>
+                    </div>
+                    <Button
+                      onClick={handleSaveAllScannedEdits}
+                      disabled={isSavingScanned}
+                      className="w-full text-xs gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-medium shadow-xs"
+                    >
+                      <Save className="w-3.5 h-3.5" />
+                      {isSavingScanned ? 'Reconstructing Page...' : 'Save & Reconstruct Page'}
+                    </Button>
                   </div>
                 )}
               </div>

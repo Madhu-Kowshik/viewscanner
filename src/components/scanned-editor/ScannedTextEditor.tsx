@@ -21,6 +21,7 @@ import {
 import { usePdf } from '../../context/PdfContext';
 import { FileDropzone } from '../common/FileDropzone';
 import { Button } from '../ui/Button';
+import { downloadBlob } from '../../lib/utils';
 import {
   renderPageThumbnail,
   runDetailedOcrOnImageDataUrl,
@@ -175,19 +176,45 @@ export const ScannedTextEditor: React.FC = () => {
         const startX = Math.max(0, x0 - 4);
         const startY = Math.max(0, y0 - 3);
 
-        // A. Sample surrounding background tone around the bounding box
+        // A. Sample surrounding 4-side border margins to detect the true local background color
+        let bgR = 255, bgG = 255, bgB = 255;
         try {
-          const sampleY = Math.max(0, startY - 4);
-          const sampleData = ctx.getImageData(startX, sampleY, Math.min(boxWidth, 10), 2);
-          const r = sampleData.data[0];
-          const g = sampleData.data[1];
-          const b = sampleData.data[2];
-          ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
+          const borderPixels: [number, number, number][] = [];
+          const margin = 4;
+          const sample = (sx: number, sy: number) => {
+            if (sx >= 0 && sx < canvas.width && sy >= 0 && sy < canvas.height) {
+              const p = ctx.getImageData(sx, sy, 1, 1).data;
+              const lum = 0.299 * (p[0] / 255) + 0.587 * (p[1] / 255) + 0.114 * (p[2] / 255);
+              if (lum > 0.3) borderPixels.push([p[0], p[1], p[2]]);
+            }
+          };
+          for (let sx = startX; sx <= startX + boxWidth; sx += 4) {
+            for (let dy = 1; dy <= margin; dy++) {
+              sample(sx, startY - dy);
+              sample(sx, startY + boxHeight + dy);
+            }
+          }
+          for (let sy = startY; sy <= startY + boxHeight; sy += 4) {
+            for (let dx = 1; dx <= margin; dx++) {
+              sample(startX - dx, sy);
+              sample(startX + boxWidth + dx, sy);
+            }
+          }
+          if (borderPixels.length > 0) {
+            let sR = 0, sG = 0, sB = 0;
+            for (const [r, g, b] of borderPixels) {
+              sR += r; sG += g; sB += b;
+            }
+            bgR = Math.round(sR / borderPixels.length);
+            bgG = Math.round(sG / borderPixels.length);
+            bgB = Math.round(sB / borderPixels.length);
+          }
         } catch {
-          ctx.fillStyle = '#ffffff'; // safe fallback
+          // safe fallback
         }
 
-        // B. Whiteout / patch the original scanned raster area
+        // B. Reconstruct / patch the original scanned raster area with true local background
+        ctx.fillStyle = `rgb(${bgR}, ${bgG}, ${bgB})`;
         ctx.fillRect(startX, startY, boxWidth, boxHeight);
 
         // C. If not deleted, render corrected text with typography
@@ -283,7 +310,7 @@ export const ScannedTextEditor: React.FC = () => {
       setAnalysisStatus('Reconstructing page and updating active PDF...');
       setIsAnalyzing(true);
 
-      const reconstructedDataUrl = canvasRef.current.toDataURL('image/jpeg', 0.92);
+      const reconstructedDataUrl = canvasRef.current.toDataURL('image/jpeg', 0.95);
       const newPdfBytes = await replacePageWithReconstructedImage(
         currentFile.data,
         activePageIndex,
@@ -299,6 +326,37 @@ export const ScannedTextEditor: React.FC = () => {
     } catch (err: any) {
       console.error('Failed saving reconstructed page:', err);
       setAnalysisStatus(`Save error: ${err.message}`);
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+  // Direct export reconstructed PDF
+  const handleExportPdf = async () => {
+    if (!currentFile || !canvasRef.current) return;
+
+    try {
+      setAnalysisStatus('Reconstructing page and preparing export...');
+      setIsAnalyzing(true);
+
+      const reconstructedDataUrl = canvasRef.current.toDataURL('image/jpeg', 0.95);
+      const newPdfBytes = await replacePageWithReconstructedImage(
+        currentFile.data,
+        activePageIndex,
+        reconstructedDataUrl
+      );
+
+      await updateActiveDocument(
+        newPdfBytes,
+        `Edit Scanned Text (Page ${activePageIndex + 1})`
+      );
+
+      const blob = new Blob([newPdfBytes as any], { type: 'application/pdf' });
+      await downloadBlob(blob, currentFile.name);
+      setAnalysisStatus('');
+    } catch (err: any) {
+      console.error('Failed exporting reconstructed page:', err);
+      setAnalysisStatus(`Export error: ${err.message}`);
     } finally {
       setIsAnalyzing(false);
     }
@@ -392,14 +450,24 @@ export const ScannedTextEditor: React.FC = () => {
               )}
             </Button>
           ) : (
-            <Button
-              onClick={handleSaveToPdf}
-              disabled={isAnalyzing}
-              className="gap-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold"
-            >
-              <Check className="w-3.5 h-3.5" />
-              Save & Update Document
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                onClick={handleSaveToPdf}
+                disabled={isAnalyzing}
+                className="gap-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold"
+              >
+                <Check className="w-3.5 h-3.5" />
+                Save Document
+              </Button>
+              <Button
+                onClick={handleExportPdf}
+                disabled={isAnalyzing}
+                className="gap-2 bg-brand-600 hover:bg-brand-700 text-white text-xs font-semibold"
+              >
+                <Download className="w-3.5 h-3.5" />
+                Export PDF
+              </Button>
+            </div>
           )}
         </div>
       </div>

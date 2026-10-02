@@ -34,8 +34,9 @@ export const WatermarkWorkspace: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'text-watermark' | 'image-watermark' | 'page-numbers' | 'header-footer' | 'remove-watermark'>('text-watermark');
 
   // Remove Watermark State
-  const [removeMode, setRemoveMode] = useState<'color-threshold' | 'region'>('color-threshold');
-  const [removeColor, setRemoveColor] = useState('#ef4444');
+  const [removeMode, setRemoveMode] = useState<'auto' | 'color-threshold' | 'region'>('auto');
+  const [wmRemoveText, setWmRemoveText] = useState('CONFIDENTIAL');
+  const [removeColor, setRemoveColor] = useState('#94a3b8');
   const [colorTolerance, setColorTolerance] = useState(35);
   const [removeRegion, setRemoveRegion] = useState<'center' | 'diagonal' | 'top' | 'bottom'>('diagonal');
   const [isRemoving, setIsRemoving] = useState(false);
@@ -147,9 +148,11 @@ export const WatermarkWorkspace: React.FC = () => {
 
       const cleanedBytes = await removeWatermarkFromPdf(currentFile.data, {
         mode: removeMode,
+        watermarkText: wmRemoveText.trim() || undefined,
         colorHex: removeColor,
         colorTolerance,
         regions,
+        preserveText: true,
       });
 
       await updateActiveDocument(cleanedBytes, 'Remove Watermark');
@@ -660,7 +663,26 @@ export const WatermarkWorkspace: React.FC = () => {
             <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2 block">
               Removal Strategy
             </label>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div
+                onClick={() => setRemoveMode('auto')}
+                className={`p-4 rounded-xl border cursor-pointer transition-all ${
+                  removeMode === 'auto'
+                    ? 'border-brand-500 bg-brand-50/50 dark:bg-brand-950/40 ring-2 ring-brand-500/20'
+                    : 'border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/40'
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-brand-600" />
+                  <span className="text-xs font-bold text-slate-900 dark:text-white">
+                    Auto Clean (Lossless)
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+                  Strips vector watermark layers, artifacts & annotations directly from PDF content streams without rasterization.
+                </p>
+              </div>
+
               <div
                 onClick={() => setRemoveMode('color-threshold')}
                 className={`p-4 rounded-xl border cursor-pointer transition-all ${
@@ -670,13 +692,13 @@ export const WatermarkWorkspace: React.FC = () => {
                 }`}
               >
                 <div className="flex items-center gap-2">
-                  <Sparkles className="w-4 h-4 text-brand-600" />
+                  <Eraser className="w-4 h-4 text-brand-600" />
                   <span className="text-xs font-bold text-slate-900 dark:text-white">
-                    Color-Selective Stamp Suppression
+                    Local Background Inpaint
                   </span>
                 </div>
                 <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
-                  Targets faint red, gray, blue, or yellow watermark stamps and lifts them to white without affecting dark text.
+                  Content-aware reconstruction: restores watermark ink to surrounding background color (blue stays blue, white stays white).
                 </p>
               </div>
 
@@ -695,11 +717,40 @@ export const WatermarkWorkspace: React.FC = () => {
                   </span>
                 </div>
                 <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
-                  Applies a clean vector patch across the target watermark region (center, diagonal, header, or footer).
+                  Removes watermarks in specific document regions using content-aware background sampling.
                 </p>
               </div>
             </div>
           </div>
+
+          {removeMode === 'auto' && (
+            <div className="space-y-4 pt-2">
+              <div>
+                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5 block">
+                  Target Watermark Text / Stamp Label (Optional)
+                </label>
+                <input
+                  type="text"
+                  value={wmRemoveText}
+                  onChange={(e) => setWmRemoveText(e.target.value)}
+                  placeholder="e.g. CONFIDENTIAL, DRAFT, SAMPLE"
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500"
+                />
+                <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                  {['CONFIDENTIAL', 'DRAFT', 'SAMPLE', 'COPY', 'WATERMARK'].map((txt) => (
+                    <button
+                      key={txt}
+                      type="button"
+                      onClick={() => setWmRemoveText(txt)}
+                      className="px-2 py-0.5 rounded text-[11px] font-medium bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition-colors"
+                    >
+                      {txt}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
 
           {removeMode === 'color-threshold' ? (
             <div className="space-y-4 pt-2">
