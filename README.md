@@ -1,5 +1,10 @@
 # OmniPDF — All-in-One Browser-Native PDF Workspace
 
+
+## Document finishing update
+
+Eight export utilities are available under **All Tools → Print & Finish**: page resizing, 2-up/4-up handouts, booklets, writing margins, odd/even extraction, form flattening, metadata editing, and text/JSON export. The dashboard is redesigned and the tool directory supports saved favorites and keyboard navigation. See [usage and limitations](docs/document-finishing.md) and [pinned design repositories](docs/design-skills/README.md).
+
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)]()
 [![Tests](https://img.shields.io/badge/tests-18%2F18%20passing-brightgreen.svg)]()
 [![Privacy](https://img.shields.io/badge/privacy-100%25%20client--side-blue.svg)]()

@@ -1,0 +1,9 @@
+[submodule "design/impeccable"]
+	path = design/impeccable
+	url = https://github.com/pbakaus/impeccable.git
+[submodule "design/taste-skill"]
+	path = design/taste-skill
+	url = https://github.com/Leonxlnx/taste-skill.git
+[submodule "design/motion-skills"]
+	path = design/motion-skills
+	url = https://github.com/freshtechbro/claudedesignskills.git

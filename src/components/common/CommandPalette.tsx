@@ -27,6 +27,7 @@ import {
   Workflow,
   Sparkles,
 } from 'lucide-react';
+import { UTILITY_TOOLS } from '../utilities/UtilitiesWorkspace';
 import { usePdf } from '../../context/PdfContext';
 
 interface ToolIntent {
@@ -40,6 +41,7 @@ interface ToolIntent {
 }
 
 export const ALL_TOOLS: ToolIntent[] = [
+  ...UTILITY_TOOLS.map(t => ({ id: t.id, title: t.name, category: 'Print & Finish', description: t.desc, path: `/utilities?mode=${t.id}`, icon: FilePlus2, keywords: [t.id, 'print', 'export', 'utilities'] })),
   {
     id: 'organize',
     title: 'Organize Pages',

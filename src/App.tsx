@@ -1,4 +1,5 @@
 import React from 'react';
+import { UtilitiesWorkspace } from './components/utilities/UtilitiesWorkspace';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { ThemeProvider } from './context/ThemeContext';
 import { PdfProvider } from './context/PdfContext';
@@ -20,6 +21,7 @@ export const App: React.FC = () => {
             <div className="flex-1 flex flex-col">
               <Routes>
                 <Route path="/" element={<LandingPage />} />
+                <Route path="/utilities" element={<UtilitiesWorkspace />} />
                 <Route path="/tools" element={<ToolsPage />} />
                 <Route path="/recent" element={<RecentFilesPage />} />
                 <Route path="/settings" element={<SettingsPage />} />
