@@ -5,9 +5,6 @@ import {
   FilePlus2,
   Split,
   Scissors,
-  RotateCw,
-  Trash2,
-  Copy,
   Eye,
   ArrowRight,
   ShieldCheck,
@@ -28,19 +25,31 @@ import {
   FileImage,
   Lock,
   Search,
+  Star,
+  Printer,
   Type,
   FormInput,
   Wrench,
   Workflow,
 } from 'lucide-react';
-import { Button } from '../components/ui/Button';
+import { UTILITY_TOOLS } from '../components/utilities/UtilitiesWorkspace';
 
 export const ToolsPage: React.FC = () => {
   const navigate = useNavigate();
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
 
+  const [favorites, setFavorites] = useState<string[]>(() => {
+    try { const saved = JSON.parse(localStorage.getItem('omnipdf-favorite-tools') || '[]'); return Array.isArray(saved) ? saved.filter((x: unknown) => typeof x === 'string') : []; } catch { return []; }
+  });
+  const [onlyFavorites, setOnlyFavorites] = useState(false);
+  const toggleFavorite = (id: string) => {
+    const next = favorites.includes(id) ? favorites.filter(x => x !== id) : [...favorites, id];
+    setFavorites(next);
+    try { localStorage.setItem('omnipdf-favorite-tools', JSON.stringify(next)); } catch { /* Session favorites still work. */ }
+  };
   const toolCategories = [
+    { id: 'finishing', title: 'Print & Finish', description: 'Prepare a document for printing and sharing', tools: UTILITY_TOOLS.map(t => ({ id: t.id, name: t.name, desc: t.desc, path: `/utilities?mode=${t.id}`, icon: Printer, badge: 'New' })) },
     {
       id: 'organize',
       title: 'Organize & Structure',
@@ -122,10 +131,10 @@ export const ToolsPage: React.FC = () => {
         {
           id: 'scanned-editor-tool',
           name: 'Edit Text Inside Scanned PDF',
-          desc: 'Neural OCR word detection, click-to-edit scanned documents, and hybrid background tone reconstruction.',
+          desc: 'Detect words with OCR and replace text over the scanned page background.',
           icon: Type,
           path: '/scanned-editor',
-          badge: 'Breakthrough',
+          badge: 'OCR',
         },
         {
           id: 'image-editor-tool',
@@ -200,7 +209,7 @@ export const ToolsPage: React.FC = () => {
         {
           id: 'compress-tool',
           name: 'Compress PDF',
-          desc: 'Reduce file size up to 85% with balanced, extreme, and custom quality controls.',
+          desc: 'Reduce file size with quality controls. Savings depend on your document.',
           icon: Minimize2,
           path: '/compress',
           badge: 'Popular',
@@ -285,7 +294,7 @@ export const ToolsPage: React.FC = () => {
   ];
 
   const filteredCategories = toolCategories.map((cat) => {
-    let tools = cat.tools;
+    let tools = onlyFavorites ? cat.tools.filter(t => favorites.includes(t.id)) : cat.tools;
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       tools = tools.filter(
@@ -304,7 +313,7 @@ export const ToolsPage: React.FC = () => {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-8 border-b border-slate-200/80 dark:border-slate-800/80">
         <div>
           <h1 className="text-3xl font-bold text-slate-900 dark:text-white">
-            Comprehensive PDF Tool Suite
+            A tool for every next step.
           </h1>
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
             Professional browser-based workspace for viewing, editing, scanning, converting, and securing documents.
@@ -312,7 +321,7 @@ export const ToolsPage: React.FC = () => {
         </div>
         <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 text-xs font-semibold self-start sm:self-auto">
           <ShieldCheck className="h-4 w-4" />
-          <span>100% Client-Side Privacy</span>
+          <span>Processed on your device</span>
         </div>
       </div>
 
@@ -350,7 +359,8 @@ export const ToolsPage: React.FC = () => {
           <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
           <input
             type="text"
-            placeholder="Search all 50+ tools..."
+            aria-label="Search tools"
+            placeholder={`Search ${toolCategories.reduce((n, c) => n + c.tools.length, 0)} tools…`}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full pl-9 pr-3.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-brand-500"
@@ -358,14 +368,19 @@ export const ToolsPage: React.FC = () => {
         </div>
       </div>
 
+      <div className="mt-5 flex items-center justify-between gap-4">
+        <p role="status" className="text-sm text-slate-500">{filteredCategories.reduce((n, c) => n + c.tools.length, 0)} tools found</p>
+        <button aria-pressed={onlyFavorites} onClick={() => setOnlyFavorites(!onlyFavorites)} className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-slate-300 px-3 text-sm dark:border-slate-700"><Star className="h-4 w-4" fill={onlyFavorites ? 'currentColor' : 'none'}/>Favorites ({favorites.length})</button>
+      </div>
+      {filteredCategories.length === 0 && <div className="my-12 rounded-xl border border-dashed border-slate-300 p-10 text-center dark:border-slate-700"><h2 className="text-lg font-semibold">No matching tools</h2><p className="mt-2 text-sm text-slate-500">Try a shorter search or choose another category. Star tools to save your favorites.</p><button className="mt-5 text-brand-600 underline" onClick={() => { setSearchQuery(''); setSelectedCategory('all'); setOnlyFavorites(false); }}>Reset filters</button></div>}
       {/* Categorized Tool Cards Grid */}
       <div className="mt-8 space-y-12">
         {filteredCategories.map((category) => (
           <section key={category.id}>
             <div className="flex items-center gap-3 mb-5">
-              <span className="text-xs font-bold uppercase tracking-wider text-brand-600 dark:text-brand-400">
+              <h2 className="text-xs font-bold uppercase tracking-wider text-brand-600 dark:text-brand-400">
                 {category.title}
-              </span>
+              </h2>
               <div className="h-px flex-1 bg-slate-200 dark:bg-slate-800" />
             </div>
 
@@ -376,14 +391,14 @@ export const ToolsPage: React.FC = () => {
                   <div
                     key={tool.id}
                     data-tool-id={tool.id}
-                    onClick={() => navigate(tool.path)}
-                    className="group relative flex flex-col justify-between rounded-2xl border border-slate-200/80 bg-white p-5 shadow-xs transition-all hover:border-brand-500/50 hover:shadow-md dark:border-slate-800/80 dark:bg-slate-900 cursor-pointer"
+                    className="group relative flex flex-col justify-between rounded-2xl border border-slate-200/80 bg-white p-5 shadow-xs transition-all hover:border-brand-500/50 hover:shadow-md dark:border-slate-800/80 dark:bg-slate-900 "
                   >
                     <div>
                       <div className="flex items-center justify-between mb-3">
                         <div className="rounded-xl bg-slate-100 p-2.5 text-slate-700 transition-colors group-hover:bg-brand-600 group-hover:text-white dark:bg-slate-800 dark:text-slate-300 dark:group-hover:bg-brand-500">
                           <Icon className="h-5 w-5" />
                         </div>
+                        <button aria-label={`${favorites.includes(tool.id) ? 'Unfavorite' : 'Favorite'} ${tool.name}`} aria-pressed={favorites.includes(tool.id)} onClick={() => toggleFavorite(tool.id)} className="rounded-lg p-3 text-slate-500 hover:text-amber-600"><Star className="h-4 w-4" fill={favorites.includes(tool.id) ? 'currentColor' : 'none'} /></button>
                         {tool.badge && (
                           <span className="rounded-full bg-brand-50 px-2.5 py-0.5 text-[10px] font-bold text-brand-700 dark:bg-brand-950/80 dark:text-brand-300 border border-brand-200 dark:border-brand-800">
                             {tool.badge}
@@ -391,7 +406,7 @@ export const ToolsPage: React.FC = () => {
                         )}
                       </div>
 
-                      <h3 className="text-sm font-bold text-slate-900 dark:text-white group-hover:text-brand-600 dark:group-hover:text-brand-400 transition-colors">
+                      <h3 className="text-base font-bold text-slate-900 dark:text-white group-hover:text-brand-600 dark:group-hover:text-brand-400 transition-colors">
                         {tool.name}
                       </h3>
                       <p className="mt-1 text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
@@ -400,7 +415,7 @@ export const ToolsPage: React.FC = () => {
                     </div>
 
                     <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800/80 flex items-center text-xs font-semibold text-brand-600 dark:text-brand-400">
-                      <span>Launch Tool</span>
+                      <button onClick={() => navigate(tool.path)} aria-label={`Open ${tool.name}`} className="min-h-11 text-left after:absolute after:inset-x-5 after:bottom-4 after:h-11">Open tool</button>
                       <ArrowRight className="w-3.5 h-3.5 ml-1 transition-transform group-hover:translate-x-1" />
                     </div>
                   </div>

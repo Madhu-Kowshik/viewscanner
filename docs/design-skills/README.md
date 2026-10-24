@@ -18,4 +18,24 @@ These three upstream design resources are registered for OmniPDF's React 19 + Vi
 
 ## Scope
 
-This is a non-invasive resource integration. Upstream repositories have not been vendored, their CLIs have not been executed, and no UI redesign is claimed. Check upstream licenses and security before installing or copying external code.
+The initial integration was reference-only. The update below adds pinned optional submodules and applies UI improvements; upstream CLIs and hooks have not been executed. Check upstream licenses before reusing their code.
+
+## Pinned upstream repositories
+
+The repository now includes optional Git submodules under `design/`:
+
+- `design/impeccable` — pbakaus/impeccable
+- `design/taste-skill` — Leonxlnx/taste-skill
+- `design/motion-skills` — freshtechbro/claudedesignskills (Motion guidance is in `.claude/skills/motion-framer/SKILL.md`)
+
+Initialize only when working on design guidance:
+
+```sh
+git submodule update --init --depth 1 design/impeccable design/taste-skill design/motion-skills
+```
+
+These are pinned source checkouts, not installed agent skills or runtime dependencies. They are excluded from application compilation and normal CI checkout. No external hooks, installers, or telemetry are enabled. Each upstream repository retains its own license. Updating a pin should be a reviewed change; do not automatically track upstream main.
+
+## Applied UI changes
+
+The document dashboard now uses a task-first split layout, restrained color, clear type hierarchy, semantic links, and practical copy. Tool search has actual counts, persistent favorites, and empty-state recovery. Global keyboard focus indicators and reduced-motion support cover the updated surfaces. Motion uses short CSS opacity/transform transitions; a runtime animation dependency is unnecessary for these interactions.
