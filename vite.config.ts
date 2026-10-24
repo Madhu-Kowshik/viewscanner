@@ -4,9 +4,11 @@ import { VitePWA } from 'vite-plugin-pwa'
 import { fileURLToPath, URL } from 'node:url'
 
 // https://vite.dev/config/
+const basePath = process.env.GITHUB_ACTIONS === 'true' ? '/viewscanner/' : '/';
+
 export default defineConfig({
   server: { allowedHosts: ['terminal.local'] },
-  base: '/',
+  base: basePath,
   plugins: [
     react(),
     VitePWA({
@@ -26,8 +28,8 @@ export default defineConfig({
         name: 'OmniPDF',
         short_name: 'OmniPDF',
         description: 'Universal client-side PDF & document workspace. Edit, organize, OCR, scan, convert, sign, and compress PDFs 100% in your browser.',
-        start_url: '/',
-        scope: '/',
+        start_url: basePath,
+        scope: basePath,
         display: 'standalone',
         display_override: ['window-controls-overlay', 'standalone', 'minimal-ui'],
         background_color: '#0f172a',
@@ -38,7 +40,7 @@ export default defineConfig({
         categories: ['productivity', 'utilities', 'business'],
         icons: [
           {
-            src: '/pwa-64x64.png',
+            src: `${basePath}pwa-64x64.png',
             sizes: '64x64',
             type: 'image/png',
           },
@@ -61,7 +63,7 @@ export default defineConfig({
             purpose: 'maskable',
           },
           {
-            src: '/apple-touch-icon-180x180.png',
+            src: `${basePath}apple-touch-icon-180x180.png',
             sizes: '180x180',
             type: 'image/png',
           },
@@ -71,7 +73,7 @@ export default defineConfig({
             name: 'PDF Editor',
             short_name: 'Editor',
             description: 'Edit text and vector elements in PDF',
-            url: '/#/editor',
+            url: `${basePath}#/editor',
             icons: [{ src: '/pwa-192x192.png', sizes: '192x192' }],
           },
           {
@@ -103,7 +105,7 @@ export default defineConfig({
         clientsClaim: true,
         globPatterns: ['**/*.{js,css,html,svg,png,ico,woff,woff2,ttf,eot}', 'pdf.worker.min.js'],
         maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
-        navigateFallback: '/index.html',
+        navigateFallback: `${basePath}index.html`,
         navigateFallbackDenylist: [/^\/api\//, /\.[a-z0-9]+$/i],
         runtimeCaching: [
           {
