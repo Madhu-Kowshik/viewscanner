@@ -73,7 +73,7 @@ export default defineConfig({
             name: 'PDF Editor',
             short_name: 'Editor',
             description: 'Edit text and vector elements in PDF',
-            url: `${basePath}#/editor',
+            url: `${basePath}#/editor`,
             icons: [{ src: `${basePath}pwa-192x192.png`, sizes: '192x192' }],
           },
           {
