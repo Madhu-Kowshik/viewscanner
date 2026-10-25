@@ -10,6 +10,7 @@ import { RecentFilesPage } from './pages/RecentFilesPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { WorkspacePage } from './pages/WorkspacePage';
 import { NotFoundPage } from './pages/NotFoundPage';
+import { ShortcutsPage } from './pages/ShortcutsPage';
 
 export const App: React.FC = () => {
   return (
@@ -25,6 +26,7 @@ export const App: React.FC = () => {
                 <Route path="/tools" element={<ToolsPage />} />
                 <Route path="/recent" element={<RecentFilesPage />} />
                 <Route path="/settings" element={<SettingsPage />} />
+                <Route path="/shortcuts" element={<ShortcutsPage />} />
 
                 {/* Workspace Routes */}
                 <Route path="/workspace" element={<Navigate to="/organize" replace />} />
