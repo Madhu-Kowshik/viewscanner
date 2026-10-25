@@ -91,3 +91,12 @@
 .dark .cm-workspace-sidebar a[aria-current=page] { box-shadow:0 8px 25px rgba(109,40,217,.24); }
 @media (max-width:1023px) { .cm-scanner-layout { grid-template-columns:minmax(0,1fr); } }
 @media (prefers-reduced-motion:reduce) { .cm-scanner-studio button { transition:none!important; } }
+
+/* Hybrid Studio architecture: functional document toolbar and collapsible navigation. */
+.dark .hybrid-studio-shell { background:#080a17; }
+.dark .hybrid-commandbar { box-shadow:0 10px 35px rgba(0,0,0,.15); }
+.dark .hybrid-studio-sidebar { box-shadow:inset -1px 0 0 rgba(139,92,246,.08); }
+.dark .hybrid-studio-sidebar nav a[aria-current=page] { box-shadow:0 10px 25px rgba(109,40,217,.24); }
+.hybrid-tool-backdrop { animation:hybrid-overlay .18s ease-out both; }
+@keyframes hybrid-overlay {from{opacity:0}to{opacity:1}}
+@media(prefers-reduced-motion:reduce){.hybrid-tool-backdrop{animation:none}}
