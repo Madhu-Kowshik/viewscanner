@@ -109,7 +109,7 @@ export const WorkspacePage: React.FC<WorkspacePageProps> = ({ initialTool = 'org
   }
 
   return (
-    <div className="flex h-[calc(100vh-4rem)] overflow-hidden bg-slate-50 dark:bg-slate-950">
+    <div className="premium-inner premium-workspace flex h-[calc(100vh-4rem)] overflow-hidden bg-slate-50 dark:bg-[#080a17]">
       {/* Desktop Sidebar */}
       <WorkspaceSidebar />
 
