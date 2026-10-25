@@ -27,8 +27,24 @@ import { ImageEditorWorkspace } from '../components/image-editor/ImageEditorWork
 import { UnifiedDocumentWorkspace, WorkspaceStudioMode } from '../components/studio/UnifiedDocumentWorkspace';
 import { ResultModal } from '../components/common/ResultModal';
 import { ProcessingOverlay } from '../components/common/ProcessingOverlay';
+import { FileDropzone } from '../components/common/FileDropzone';
 import { Button } from '../components/ui/Button';
-import { Sparkles, ScanText, Type, X, FileSearch } from 'lucide-react';
+import {
+  Sparkles,
+  ScanText,
+  Type,
+  X,
+  FileSearch,
+  Camera,
+  Layers,
+  FilePlus2,
+  ArrowRight,
+  Edit3,
+  PenTool,
+  FormInput,
+  ShieldCheck,
+  Minimize2,
+} from 'lucide-react';
 import { formatBytes } from '../lib/utils';
 import { usePdf } from '../context/PdfContext';
 
@@ -39,7 +55,7 @@ export interface WorkspacePageProps {
 export const WorkspacePage: React.FC<WorkspacePageProps> = ({ initialTool = 'organize' }) => {
   const location = useLocation();
   const navigate = useNavigate();
-  const { currentFile, healthReport, savedSession, resumeSavedSession, dismissSavedSession, documentType } = usePdf();
+  const { currentFile, healthReport, savedSession, resumeSavedSession, dismissSavedSession, documentType, loadSampleDoc } = usePdf();
   const [dismissedTipFileId, setDismissedTipFileId] = useState<string | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
@@ -219,7 +235,156 @@ export const WorkspacePage: React.FC<WorkspacePageProps> = ({ initialTool = 'org
             </>
           )}
 
-          {activeTool === 'organize' && <PageOrganizer />}
+          {activeTool === 'organize' && (
+            !currentFile ? (
+              <div className="max-w-5xl mx-auto py-2 space-y-8 animate-in fade-in duration-200">
+                {/* Studio Hero Header */}
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-6 border-b border-slate-200 dark:border-violet-500/15">
+                  <div>
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <span className="text-[11px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-violet-500/15 text-violet-600 dark:text-violet-400 border border-violet-500/20">
+                        Desktop Document Studio
+                      </span>
+                      <span className="text-xs text-slate-400">• WebAssembly Acceleration</span>
+                    </div>
+                    <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight">
+                      OmniPDF Ultimate Studio
+                    </h1>
+                    <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-1 max-w-2xl">
+                      Professional Adobe Acrobat-grade document processing engineered directly in your browser. Complete vector text editing, neural OCR, camera scanning, and cryptographic sanitization — 100% private and client-side.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={loadSampleDoc}
+                      className="gap-1.5 text-xs border-violet-500/30 text-violet-600 dark:text-violet-300 hover:bg-violet-50 dark:hover:bg-violet-950/40"
+                    >
+                      <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Try Sample PDF</span>
+                    </Button>
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      onClick={() => navigate('/scanner')}
+                      className="gap-1.5 text-xs bg-violet-600 hover:bg-violet-700 text-white shadow-xs"
+                    >
+                      <Camera className="w-3.5 h-3.5" />
+                      <span>Launch Scanner</span>
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Primary Dropzone */}
+                <div className="studio-glass p-2 rounded-3xl border border-violet-500/20 shadow-xl bg-white/50 dark:bg-[#0c0f22]/70 backdrop-blur-xl">
+                  <FileDropzone
+                    title="Drop your PDF or document here to open Studio"
+                    subtitle="Instant local processing • Supports PDF, Images, Text documents"
+                  />
+                </div>
+
+                {/* Quick Workflow Stations (3 Primary Pillars) */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <button
+                    onClick={() => navigate('/scanner')}
+                    className="p-5 rounded-2xl border border-slate-200 dark:border-violet-500/15 bg-white dark:bg-[#0b0e20] hover:border-violet-400 dark:hover:border-violet-400/50 hover:shadow-lg transition-all text-left group"
+                  >
+                    <div className="w-10 h-10 rounded-xl bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
+                      <Camera className="w-5 h-5" />
+                    </div>
+                    <h3 className="text-sm font-bold text-slate-900 dark:text-white mb-1 flex items-center justify-between">
+                      <span>CamScanner Studio</span>
+                      <ArrowRight className="w-4 h-4 text-slate-400 group-hover:translate-x-1 transition-transform" />
+                    </h3>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                      Capture document pages via camera with corner-pin perspective cropping and bleach paper filters.
+                    </p>
+                  </button>
+
+                  <button
+                    onClick={() => navigate('/batch')}
+                    className="p-5 rounded-2xl border border-slate-200 dark:border-violet-500/15 bg-white dark:bg-[#0b0e20] hover:border-violet-400 dark:hover:border-violet-400/50 hover:shadow-lg transition-all text-left group"
+                  >
+                    <div className="w-10 h-10 rounded-xl bg-violet-500/15 text-violet-600 dark:text-violet-400 flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
+                      <Layers className="w-5 h-5" />
+                    </div>
+                    <h3 className="text-sm font-bold text-slate-900 dark:text-white mb-1 flex items-center justify-between">
+                      <span>Multi-File Batch Queue</span>
+                      <ArrowRight className="w-4 h-4 text-slate-400 group-hover:translate-x-1 transition-transform" />
+                    </h3>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                      Bulk compress, watermark, sanitize, or convert dozens of documents simultaneously.
+                    </p>
+                  </button>
+
+                  <button
+                    onClick={() => navigate('/merge')}
+                    className="p-5 rounded-2xl border border-slate-200 dark:border-violet-500/15 bg-white dark:bg-[#0b0e20] hover:border-violet-400 dark:hover:border-violet-400/50 hover:shadow-lg transition-all text-left group"
+                  >
+                    <div className="w-10 h-10 rounded-xl bg-cyan-500/15 text-cyan-600 dark:text-cyan-400 flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
+                      <FilePlus2 className="w-5 h-5" />
+                    </div>
+                    <h3 className="text-sm font-bold text-slate-900 dark:text-white mb-1 flex items-center justify-between">
+                      <span>Merge & Assemble</span>
+                      <ArrowRight className="w-4 h-4 text-slate-400 group-hover:translate-x-1 transition-transform" />
+                    </h3>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                      Combine PDF files, scans, and attachments into a single structured master document.
+                    </p>
+                  </button>
+                </div>
+
+                {/* Studio Capabilities Matrix */}
+                <div className="p-5 rounded-2xl bg-white dark:bg-[#0b0e20] border border-slate-200 dark:border-violet-500/15">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-3">
+                    Comprehensive Document Toolkit
+                  </span>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+                    {[
+                      { label: 'Vector Editor', desc: 'In-stream text editing', icon: Edit3, path: '/editor' },
+                      { label: 'Neural OCR', desc: 'Scanned text recognition', icon: ScanText, path: '/ocr' },
+                      { label: 'Sign Document', desc: 'Digital signatures', icon: PenTool, path: '/sign' },
+                      { label: 'Form Studio', desc: 'Interactive AcroForms', icon: FormInput, path: '/forms' },
+                      { label: 'Sanitize PDF', desc: 'Redaction & link purge', icon: ShieldCheck, path: '/protect' },
+                      { label: 'Compression', desc: 'Smart byte reduction', icon: Minimize2, path: '/compress' },
+                    ].map((item) => {
+                      const Icon = item.icon;
+                      return (
+                        <button
+                          key={item.label}
+                          onClick={() => navigate(item.path)}
+                          className="p-3 rounded-xl border border-slate-100 dark:border-violet-500/10 hover:border-violet-500/30 dark:hover:bg-white/[0.04] transition-all text-left flex flex-col justify-between"
+                        >
+                          <Icon className="w-4 h-4 text-violet-400 mb-2" />
+                          <div>
+                            <div className="text-xs font-semibold text-slate-800 dark:text-slate-200">{item.label}</div>
+                            <div className="text-[10px] text-slate-400">{item.desc}</div>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Security & Privacy Guarantee Footer */}
+                <div className="flex flex-col sm:flex-row items-center justify-between p-4 rounded-xl border border-emerald-500/20 bg-emerald-50/50 dark:bg-emerald-950/20 text-xs text-emerald-800 dark:text-emerald-300 gap-3">
+                  <div className="flex items-center gap-2">
+                    <ShieldCheck className="w-5 h-5 text-emerald-500 shrink-0" />
+                    <span className="font-semibold">Privacy First Guarantee:</span>
+                    <span className="text-slate-600 dark:text-slate-400">
+                      All document processing, OCR, encryption, and rendering happens 100% locally on your device.
+                    </span>
+                  </div>
+                  <span className="font-mono text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/30 shrink-0">
+                    Zero Cloud Uploads
+                  </span>
+                </div>
+              </div>
+            ) : (
+              <PageOrganizer />
+            )
+          )}
           {activeTool === 'viewer' && (
             <div className="h-full min-h-[600px] flex flex-col">
               {currentFile ? <PdfViewer /> : <PageOrganizer />}

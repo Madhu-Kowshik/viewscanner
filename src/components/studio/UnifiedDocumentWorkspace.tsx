@@ -40,7 +40,18 @@ import {
   RefreshCw,
   Layers,
   ChevronDown,
+  RotateCcw,
+  Info,
+  Bookmark,
+  Compass,
+  Maximize,
+  Grid,
+  SlidersHorizontal,
+  Lock,
+  FileUp,
+  FileCheck,
 } from 'lucide-react';
+import { PDFDocument } from 'pdf-lib';
 import { usePdf } from '../../context/PdfContext';
 import { Button } from '../ui/Button';
 import { cn, formatBytes, downloadBlob } from '../../lib/utils';
@@ -106,6 +117,7 @@ export const UnifiedDocumentWorkspace: React.FC<UnifiedDocumentWorkspaceProps> =
     redo,
     processing,
     getPageClassification,
+    loadFile,
   } = usePdf();
 
   // Mode and Navigation State
@@ -115,6 +127,17 @@ export const UnifiedDocumentWorkspace: React.FC<UnifiedDocumentWorkspaceProps> =
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
   const [showThumbnails, setShowThumbnails] = useState<boolean>(true);
   const [statusMessage, setStatusMessage] = useState<string>('Ready');
+
+  // Studio Panels & Tabs State
+  const [rightPanelTab, setRightPanelTab] = useState<'tools' | 'properties'>('tools');
+  const [leftPanelTab, setLeftPanelTab] = useState<'thumbnails' | 'search' | 'info'>('thumbnails');
+  const [metaTitle, setMetaTitle] = useState(healthReport?.metadata?.title || '');
+  const [metaAuthor, setMetaAuthor] = useState(healthReport?.metadata?.author || '');
+  const [metaSubject, setMetaSubject] = useState('');
+  const [isSavingMeta, setIsSavingMeta] = useState(false);
+  const [thumbnailSize, setThumbnailSize] = useState<'compact' | 'normal' | 'large'>('normal');
+  const [isDraggingOverCanvas, setIsDraggingOverCanvas] = useState(false);
+  const studioFileInputRef = useRef<HTMLInputElement>(null);
 
   // Search State (Ctrl + F)
   const [isSearchOpen, setIsSearchOpen] = useState(false);
@@ -220,6 +243,61 @@ export const UnifiedDocumentWorkspace: React.FC<UnifiedDocumentWorkspaceProps> =
   useEffect(() => {
     renderActivePage();
   }, [renderActivePage]);
+
+  // Sync Document Metadata
+  useEffect(() => {
+    if (healthReport?.metadata) {
+      setMetaTitle(healthReport.metadata.title || '');
+      setMetaAuthor(healthReport.metadata.author || '');
+    }
+  }, [healthReport]);
+
+  const handleSaveMetadata = async () => {
+    if (!currentFile) return;
+    try {
+      setIsSavingMeta(true);
+      setStatusMessage('Writing updated document properties into PDF stream...');
+      const pdfDoc = await PDFDocument.load(currentFile.data);
+      if (metaTitle.trim()) pdfDoc.setTitle(metaTitle.trim());
+      if (metaAuthor.trim()) pdfDoc.setAuthor(metaAuthor.trim());
+      if (metaSubject.trim()) pdfDoc.setSubject(metaSubject.trim());
+      const updated = await pdfDoc.save();
+      await updateActiveDocument(updated, 'Update Document Properties');
+      setStatusMessage('Document properties successfully saved.');
+    } catch (err: any) {
+      console.error('Metadata save error:', err);
+      setStatusMessage(err?.message || 'Failed to save metadata');
+    } finally {
+      setIsSavingMeta(false);
+    }
+  };
+
+  const handleFitToWidth = () => {
+    if (!viewportWrapperRef.current) return;
+    const availableWidth = viewportWrapperRef.current.clientWidth - 80;
+    const computedScale = Math.max(0.4, Math.min(2.5, availableWidth / 595.28));
+    setScale(parseFloat(computedScale.toFixed(2)));
+    setStatusMessage(`Zoom: Fit Width (${Math.round(computedScale * 100)}%)`);
+  };
+
+  const handleFitToPage = () => {
+    if (!viewportWrapperRef.current) return;
+    const availableHeight = viewportWrapperRef.current.clientHeight - 130;
+    const computedScale = Math.max(0.4, Math.min(2.0, availableHeight / 841.89));
+    setScale(parseFloat(computedScale.toFixed(2)));
+    setStatusMessage(`Zoom: Fit Page (${Math.round(computedScale * 100)}%)`);
+  };
+
+  const handleCanvasDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDraggingOverCanvas(false);
+    const files = Array.from(e.dataTransfer.files);
+    const pdfFile = files.find((f) => f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf'));
+    if (pdfFile) {
+      setStatusMessage(`Loading ${pdfFile.name}...`);
+      await loadFile(pdfFile);
+    }
+  };
 
   // Extract vector text on page when entering 'edit-text' mode
   useEffect(() => {
@@ -351,8 +429,20 @@ export const UnifiedDocumentWorkspace: React.FC<UnifiedDocumentWorkspaceProps> =
           const existing = scannedEdits.find((ed) => ed.id === selectedOcrWord.id);
           setInlineOcrValue(existing ? existing.newText : selectedOcrWord.text);
         }
-      } else if (e.key === '?' && !e.ctrlKey && !e.metaKey && document.activeElement?.tagName !== 'INPUT') {
+      } else if (e.key === '?' && !e.ctrlKey && !e.metaKey && !['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName || '')) {
         setIsShortcutsOpen((prev) => !prev);
+      } else if ((e.key === 'w' || e.key === 'W') && !e.ctrlKey && !e.metaKey && !['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName || '')) {
+        e.preventDefault();
+        handleFitToWidth();
+      } else if (e.key === '0' && !e.ctrlKey && !e.metaKey && !['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName || '')) {
+        e.preventDefault();
+        handleFitToPage();
+      } else if (e.key === '1' && !e.ctrlKey && !e.metaKey && !['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName || '')) {
+        e.preventDefault();
+        setScale(1.0);
+      } else if ((e.key === 'f' || e.key === 'F') && !e.ctrlKey && !e.metaKey && !['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName || '')) {
+        e.preventDefault();
+        setIsFullscreen((prev) => !prev);
       }
     };
 
@@ -924,9 +1014,70 @@ export const UnifiedDocumentWorkspace: React.FC<UnifiedDocumentWorkspaceProps> =
   if (!currentFile) return null;
 
   return (
-    <div className="flex flex-col h-[calc(100vh-4.25rem)] bg-slate-100 dark:bg-slate-950 select-none overflow-hidden">
+    <div className="flex flex-col h-[calc(100vh-4.25rem)] bg-slate-100 dark:bg-[#070915] select-none overflow-hidden">
+      {/* 0. DOCUMENT TABS STRIP */}
+      <div className="h-9 bg-[#0b0e20] border-b border-violet-500/15 px-3 flex items-center justify-between gap-2 shrink-0 z-30">
+        <div className="flex items-center gap-1.5 overflow-x-auto py-1">
+          <div className="flex items-center gap-2 px-3 py-1 rounded-t-lg bg-[#141834] border-t border-l border-r border-violet-400/25 text-white text-xs font-semibold shadow-xs">
+            <FileText className="w-3.5 h-3.5 text-violet-400 shrink-0" />
+            <span className="truncate max-w-[150px] sm:max-w-[220px]" title={currentFile.name}>{currentFile.name}</span>
+            <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-violet-500/25 text-violet-300 font-mono">
+              {totalPages}p
+            </span>
+          </div>
+
+          <button
+            onClick={() => studioFileInputRef.current?.click()}
+            className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-slate-400 hover:text-white hover:bg-white/5 text-xs font-medium transition-colors"
+            title="Open another PDF document into studio"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Open PDF</span>
+          </button>
+          <input
+            ref={studioFileInputRef}
+            type="file"
+            accept="application/pdf"
+            onChange={async (e) => {
+              const f = e.target.files?.[0];
+              if (f) {
+                setStatusMessage(`Loading ${f.name}...`);
+                await loadFile(f);
+              }
+            }}
+            className="hidden"
+          />
+        </div>
+
+        {/* Right side tab helpers */}
+        <div className="flex items-center gap-2 text-xs">
+          <button
+            onClick={() => setRightPanelTab(rightPanelTab === 'properties' ? 'tools' : 'properties')}
+            className={cn(
+              'px-2 py-1 rounded-md text-xs font-medium transition-colors flex items-center gap-1.5',
+              rightPanelTab === 'properties'
+                ? 'bg-violet-600 text-white shadow-xs font-bold'
+                : 'text-slate-400 hover:text-white hover:bg-white/10'
+            )}
+            title="Inspect & Edit Document Metadata (Title, Author, Specs)"
+          >
+            <Info className="w-3.5 h-3.5" />
+            <span className="hidden md:inline">Document Properties</span>
+          </button>
+
+          <button
+            onClick={() => setIsFullscreen(!isFullscreen)}
+            className="px-2 py-1 rounded-md text-slate-400 hover:text-white hover:bg-white/10 flex items-center gap-1.5 text-xs font-medium transition-colors"
+            title="Toggle Distraction-Free Presentation Mode (F)"
+          >
+            {isFullscreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+            <span className="hidden sm:inline">{isFullscreen ? 'Exit Fullscreen' : 'Presentation'}</span>
+          </button>
+        </div>
+      </div>
+
       {/* 1. TOP HEADER TOOLBAR */}
-      <header className="h-14 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-4 flex items-center justify-between gap-2 shrink-0 z-30 shadow-2xs">
+      <header className="h-13 bg-white dark:bg-[#0e1124] border-b border-slate-200 dark:border-violet-400/10 px-4 flex items-center justify-between gap-2 shrink-0 z-30 shadow-2xs">
         {/* Left: Document Info & Home Navigation */}
         <div className="flex items-center gap-3 min-w-0">
           {onNavigateHome && (
@@ -949,11 +1100,11 @@ export const UnifiedDocumentWorkspace: React.FC<UnifiedDocumentWorkspaceProps> =
             </span>
             {documentType === 'scanned' || healthReport?.isLikelyScanned ? (
               <span className="hidden md:inline-flex items-center gap-1.5 text-[10px] px-2.5 py-0.5 rounded-full font-bold bg-amber-50 dark:bg-amber-950/70 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 shrink-0">
-                <ScanText className="w-3 h-3 text-amber-500" /> Scanned PDF detected — OCR editing available
+                <ScanText className="w-3 h-3 text-amber-500" /> Scanned PDF • OCR Available
               </span>
             ) : (
               <span className="hidden md:inline-flex items-center gap-1.5 text-[10px] px-2.5 py-0.5 rounded-full font-bold bg-emerald-50 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 shrink-0">
-                <Type className="w-3 h-3 text-emerald-500" /> Editable PDF detected
+                <Type className="w-3 h-3 text-emerald-500" /> Vector Text PDF
               </span>
             )}
           </div>
@@ -965,7 +1116,7 @@ export const UnifiedDocumentWorkspace: React.FC<UnifiedDocumentWorkspaceProps> =
             { id: 'view', label: 'View', icon: Eye },
             { id: 'edit-text', label: 'Edit Text', icon: Type },
             { id: 'scanned-ocr', label: 'OCR Scanned', icon: ScanText },
-            { id: 'annotate', label: 'Add Text', icon: PenTool },
+            { id: 'annotate', label: 'Markup & Draw', icon: PenTool },
             { id: 'organize', label: 'Organize', icon: LayoutGrid },
             { id: 'sign', label: 'Sign', icon: FileSignature },
             { id: 'forms', label: 'Forms', icon: FormInput },
@@ -1003,6 +1154,24 @@ export const UnifiedDocumentWorkspace: React.FC<UnifiedDocumentWorkspaceProps> =
 
         {/* Right: Actions, Zoom, Shortcuts, Export */}
         <div className="flex items-center gap-1.5 shrink-0">
+          {/* Rotate Current Page Quick Buttons */}
+          <div className="hidden xl:flex items-center gap-0.5 bg-slate-100 dark:bg-slate-800 rounded-lg p-0.5">
+            <button
+              onClick={() => rotatePage(currentPageItem?.id || '', -90)}
+              className="p-1.5 rounded text-slate-500 hover:text-slate-900 dark:hover:text-white"
+              title="Rotate Page -90°"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={() => rotatePage(currentPageItem?.id || '', 90)}
+              className="p-1.5 rounded text-slate-500 hover:text-slate-900 dark:hover:text-white"
+              title="Rotate Page +90°"
+            >
+              <RotateCw className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
           {/* Undo / Redo */}
           <button
             onClick={undo}
@@ -1033,22 +1202,47 @@ export const UnifiedDocumentWorkspace: React.FC<UnifiedDocumentWorkspaceProps> =
             <Search className="w-4 h-4" />
           </button>
 
-          {/* Zoom Controls */}
-          <div className="hidden sm:flex items-center gap-0.5 bg-slate-100 dark:bg-slate-800 rounded-lg p-0.5">
+          {/* Stepped Zoom & Fit Controls */}
+          <div className="hidden sm:flex items-center gap-1 bg-slate-100 dark:bg-slate-800/90 rounded-lg p-0.5">
             <button
-              onClick={() => setScale((s) => Math.max(0.5, s - 0.15))}
+              onClick={() => handleFitToWidth()}
+              className="px-2 py-1 rounded text-[11px] font-semibold text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-700 transition-colors"
+              title="Fit to Width (W)"
+            >
+              Fit W
+            </button>
+            <button
+              onClick={() => handleFitToPage()}
+              className="px-2 py-1 rounded text-[11px] font-semibold text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-700 transition-colors"
+              title="Fit to Page (0)"
+            >
+              Fit Page
+            </button>
+            <div className="h-3 w-px bg-slate-300 dark:bg-slate-700 mx-0.5" />
+            <button
+              onClick={() => setScale((s) => Math.max(0.25, parseFloat((s - 0.15).toFixed(2))))}
               className="p-1 rounded text-slate-500 hover:text-slate-900 dark:hover:text-slate-200"
-              title="Zoom Out"
+              title="Zoom Out (-)"
             >
               <ZoomOut className="w-3.5 h-3.5" />
             </button>
-            <span className="text-[11px] font-mono px-1.5 text-slate-600 dark:text-slate-300">
-              {Math.round(scale * 100)}%
-            </span>
+            <select
+              value={scale}
+              onChange={(e) => setScale(parseFloat(e.target.value))}
+              className="text-[11px] font-mono bg-transparent text-slate-700 dark:text-slate-300 px-1 py-0.5 rounded cursor-pointer outline-none"
+            >
+              <option value="0.5">50%</option>
+              <option value="0.75">75%</option>
+              <option value="1">100%</option>
+              <option value="1.25">125%</option>
+              <option value="1.5">150%</option>
+              <option value="2">200%</option>
+              <option value="3">300%</option>
+            </select>
             <button
-              onClick={() => setScale((s) => Math.min(3.0, s + 0.15))}
+              onClick={() => setScale((s) => Math.min(4.0, parseFloat((s + 0.15).toFixed(2))))}
               className="p-1 rounded text-slate-500 hover:text-slate-900 dark:hover:text-slate-200"
-              title="Zoom In"
+              title="Zoom In (+)"
             >
               <ZoomIn className="w-3.5 h-3.5" />
             </button>
@@ -1126,88 +1320,215 @@ export const UnifiedDocumentWorkspace: React.FC<UnifiedDocumentWorkspaceProps> =
 
       {/* 2. THREE-PANE MAIN WORKSPACE BODY */}
       <div className="flex-1 flex overflow-hidden">
-        {/* LEFT PANEL: THUMBNAILS & PAGE NAVIGATION */}
+        {/* LEFT PANEL: THUMBNAILS, SEARCH MATCHES & DOCUMENT OUTLINE */}
         <aside
           className={cn(
-            'border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 transition-all duration-200 flex flex-col shrink-0 z-10',
-            showThumbnails ? 'w-56' : 'w-10'
+            'border-r border-slate-200 dark:border-violet-400/10 bg-white dark:bg-[#0a0d1e] transition-all duration-200 flex flex-col shrink-0 z-10 shadow-xs',
+            showThumbnails ? 'w-60' : 'w-10'
           )}
         >
-          <div className="p-2 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs font-bold text-slate-600 dark:text-slate-400">
-            {showThumbnails && <span>Pages ({totalPages})</span>}
+          {/* Left Panel Top Header & Tab Switcher */}
+          <div className="p-2 border-b border-slate-100 dark:border-slate-800/80 flex items-center justify-between text-xs font-bold text-slate-600 dark:text-slate-400">
+            {showThumbnails ? (
+              <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-900 p-0.5 rounded-lg w-full mr-2">
+                <button
+                  onClick={() => setLeftPanelTab('thumbnails')}
+                  className={cn(
+                    'flex-1 py-1 text-[11px] font-semibold rounded-md transition-all text-center',
+                    leftPanelTab === 'thumbnails'
+                      ? 'bg-white dark:bg-slate-800 text-brand-600 dark:text-violet-300 shadow-2xs font-bold'
+                      : 'text-slate-500 hover:text-slate-800 dark:text-slate-400'
+                  )}
+                >
+                  Pages ({totalPages})
+                </button>
+                <button
+                  onClick={() => setLeftPanelTab('search')}
+                  className={cn(
+                    'flex-1 py-1 text-[11px] font-semibold rounded-md transition-all text-center',
+                    leftPanelTab === 'search'
+                      ? 'bg-white dark:bg-slate-800 text-brand-600 dark:text-violet-300 shadow-2xs font-bold'
+                      : 'text-slate-500 hover:text-slate-800 dark:text-slate-400'
+                  )}
+                >
+                  Matches {searchResults.length > 0 && `(${searchResults.length})`}
+                </button>
+                <button
+                  onClick={() => setLeftPanelTab('info')}
+                  className={cn(
+                    'px-2 py-1 text-[11px] font-semibold rounded-md transition-all text-center',
+                    leftPanelTab === 'info'
+                      ? 'bg-white dark:bg-slate-800 text-brand-600 dark:text-violet-300 shadow-2xs font-bold'
+                      : 'text-slate-500 hover:text-slate-800 dark:text-slate-400'
+                  )}
+                  title="Page Dimensions & Classification"
+                >
+                  Info
+                </button>
+              </div>
+            ) : null}
+
             <button
               onClick={() => setShowThumbnails((prev) => !prev)}
-              className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 mx-auto"
-              title={showThumbnails ? 'Collapse Thumbnails' : 'Expand Thumbnails'}
+              className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 mx-auto shrink-0"
+              title={showThumbnails ? 'Collapse Left Sidebar' : 'Expand Left Sidebar'}
             >
               {showThumbnails ? <ChevronLeft className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
             </button>
           </div>
 
           {showThumbnails && (
-            <div className="flex-1 overflow-y-auto p-2 space-y-3">
-              {pages.map((p, idx) => {
-                const isSelected = idx === currentPageIndex;
-                return (
-                  <div
-                    key={p.id}
-                    onClick={() => setCurrentPageIndex(idx)}
-                    className={cn(
-                      'group relative rounded-xl border p-1.5 cursor-pointer transition-all bg-slate-50 dark:bg-slate-950/60',
-                      isSelected
-                        ? 'border-brand-500 ring-2 ring-brand-500/20 shadow-xs'
-                        : 'border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
-                    )}
-                  >
-                    <div className="aspect-[1/1.414] bg-white rounded-lg overflow-hidden flex items-center justify-center border border-slate-100 dark:border-slate-800">
-                      {p.thumbnailUrl ? (
-                        <img src={p.thumbnailUrl} alt={`Page ${idx + 1}`} className="w-full h-full object-contain" />
-                      ) : (
-                        <span className="text-[11px] text-slate-400 font-mono">P.{idx + 1}</span>
-                      )}
+            <div className="flex-1 overflow-y-auto p-2">
+              {/* TAB 1: THUMBNAILS FILMSTRIP */}
+              {leftPanelTab === 'thumbnails' && (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between px-1 text-[10px] text-slate-400">
+                    <span>Page Order</span>
+                    <button
+                      onClick={reverseAllPages}
+                      className="hover:text-violet-400 flex items-center gap-1 text-[10px]"
+                      title="Flip sequence of pages"
+                    >
+                      <RefreshCw className="w-3 h-3" /> Flip All
+                    </button>
+                  </div>
+
+                  <div className={cn(
+                    'grid gap-2.5',
+                    thumbnailSize === 'compact' ? 'grid-cols-2' : 'grid-cols-1'
+                  )}>
+                    {pages.map((p, idx) => {
+                      const isSelected = idx === currentPageIndex;
+                      return (
+                        <div
+                          key={p.id}
+                          onClick={() => setCurrentPageIndex(idx)}
+                          className={cn(
+                            'group relative rounded-xl border p-1.5 cursor-pointer transition-all bg-slate-50 dark:bg-[#101328]',
+                            isSelected
+                              ? 'border-violet-500 ring-2 ring-violet-500/30 shadow-md scale-[1.01]'
+                              : 'border-slate-200 dark:border-violet-500/10 hover:border-violet-400/30'
+                          )}
+                        >
+                          <div className="aspect-[1/1.414] bg-white rounded-lg overflow-hidden flex items-center justify-center border border-slate-100 dark:border-slate-800 shadow-inner">
+                            {p.thumbnailUrl ? (
+                              <img src={p.thumbnailUrl} alt={`Page ${idx + 1}`} className="w-full h-full object-contain pointer-events-none" />
+                            ) : (
+                              <span className="text-[11px] text-slate-400 font-mono">P.{idx + 1}</span>
+                            )}
+                          </div>
+                          <div className="flex items-center justify-between mt-1 px-1">
+                            <span className="text-[10px] font-bold text-slate-600 dark:text-slate-300">
+                              Page {idx + 1}
+                            </span>
+                            <div className="opacity-0 group-hover:opacity-100 flex items-center gap-1 transition-opacity">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  rotatePage(p.id, 90);
+                                }}
+                                className="p-0.5 rounded text-slate-400 hover:text-white"
+                                title="Rotate 90°"
+                              >
+                                <RotateCw className="w-3 h-3" />
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  duplicatePage(p.id);
+                                }}
+                                className="p-0.5 rounded text-slate-400 hover:text-white"
+                                title="Duplicate Page"
+                              >
+                                <Copy className="w-3 h-3" />
+                              </button>
+                              {pages.length > 1 && (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    deletePage(p.id);
+                                  }}
+                                  className="p-0.5 rounded text-rose-400 hover:text-rose-300"
+                                  title="Delete Page"
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* TAB 2: IN-DOCUMENT SEARCH RESULTS */}
+              {leftPanelTab === 'search' && (
+                <div className="space-y-2">
+                  <div className="text-[10px] uppercase font-bold text-slate-400 px-1">
+                    Occurrences for "{searchQuery || '...'}"
+                  </div>
+                  {searchResults.length === 0 ? (
+                    <div className="p-4 text-center text-xs text-slate-500 rounded-xl bg-slate-50 dark:bg-slate-900/40 border border-dashed border-slate-200 dark:border-slate-800">
+                      Press <kbd className="px-1 py-0.5 bg-slate-200 dark:bg-slate-800 rounded font-mono text-[10px]">Ctrl+F</kbd> to search text inside document.
                     </div>
-                    <div className="flex items-center justify-between mt-1 px-1">
-                      <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">
-                        {idx + 1}
-                      </span>
-                      <div className="opacity-0 group-hover:opacity-100 flex items-center gap-1 transition-opacity">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            rotatePage(p.id, 90);
-                          }}
-                          className="p-0.5 rounded text-slate-400 hover:text-slate-600"
-                          title="Rotate 90°"
-                        >
-                          <RotateCw className="w-3 h-3" />
-                        </button>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            duplicatePage(p.id);
-                          }}
-                          className="p-0.5 rounded text-slate-400 hover:text-slate-600"
-                          title="Duplicate Page"
-                        >
-                          <Copy className="w-3 h-3" />
-                        </button>
-                        {pages.length > 1 && (
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              deletePage(p.id);
-                            }}
-                            className="p-0.5 rounded text-rose-400 hover:text-rose-600"
-                            title="Delete Page"
-                          >
-                            <Trash2 className="w-3 h-3" />
-                          </button>
+                  ) : (
+                    searchResults.map((m, idx) => (
+                      <button
+                        key={idx}
+                        onClick={() => {
+                          setCurrentPageIndex(m.pageIndex);
+                          setCurrentMatchIdx(idx);
+                        }}
+                        className={cn(
+                          'w-full text-left p-2.5 rounded-xl border text-xs transition-all',
+                          currentMatchIdx === idx
+                            ? 'border-violet-500 bg-violet-500/10 text-white font-semibold'
+                            : 'border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/40 text-slate-400'
                         )}
-                      </div>
+                      >
+                        <div className="flex justify-between text-[10px] text-violet-400 font-bold mb-1">
+                          <span>Page {m.pageIndex + 1}</span>
+                          <span>Match #{idx + 1}</span>
+                        </div>
+                        <p className="truncate text-[11px] font-sans">
+                          "{m.text}"
+                        </p>
+                      </button>
+                    ))
+                  )}
+                </div>
+              )}
+
+              {/* TAB 3: CURRENT PAGE INFO */}
+              {leftPanelTab === 'info' && (
+                <div className="space-y-3 p-1 text-xs">
+                  <div className="p-3 rounded-xl bg-slate-50 dark:bg-[#101328] border border-slate-200 dark:border-violet-500/15 space-y-2">
+                    <span className="text-[10px] uppercase font-bold text-slate-400 block">
+                      Active Page {currentPageIndex + 1}
+                    </span>
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">Dimensions:</span>
+                      <span className="font-mono text-slate-300">595.3 × 841.9 pt</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">Sheet Size:</span>
+                      <span className="font-semibold text-slate-300">A4 Standard</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">Millimeters:</span>
+                      <span className="font-mono text-slate-300">210 × 297 mm</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">Classification:</span>
+                      <span className="font-bold text-emerald-400">
+                        {getPageClassification(currentPageIndex)?.type.toUpperCase() || 'VECTOR'}
+                      </span>
                     </div>
                   </div>
-                );
-              })}
+                </div>
+              )}
             </div>
           )}
         </aside>
@@ -1215,8 +1536,131 @@ export const UnifiedDocumentWorkspace: React.FC<UnifiedDocumentWorkspaceProps> =
         {/* CENTER VIEWPORT: HIGH-DPI CANVAS & INTERACTIVE OVERLAY */}
         <main
           ref={viewportWrapperRef}
+          onDragOver={(e) => {
+            e.preventDefault();
+            setIsDraggingOverCanvas(true);
+          }}
+          onDragLeave={(e) => {
+            if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+              setIsDraggingOverCanvas(false);
+            }
+          }}
+          onDrop={handleCanvasDrop}
           className="flex-1 overflow-auto p-4 sm:p-8 flex flex-col items-center justify-start bg-slate-200/60 dark:bg-slate-950 relative gap-3"
         >
+          {/* Dropzone Overlay */}
+          {isDraggingOverCanvas && (
+            <div className="absolute inset-0 bg-violet-950/85 backdrop-blur-md z-50 flex flex-col items-center justify-center border-4 border-dashed border-violet-400 p-8 rounded-2xl animate-in fade-in duration-150">
+              <div className="p-4 rounded-2xl bg-violet-600/30 border border-violet-400/40 text-violet-200 mb-4 animate-bounce">
+                <FileUp className="w-12 h-12" />
+              </div>
+              <h3 className="text-xl font-bold text-white mb-1">Drop PDF to Open in Studio</h3>
+              <p className="text-sm text-violet-200">Replaces current document with high-fidelity client-side processing</p>
+            </div>
+          )}
+
+          {/* Floating Annotation Toolbar (When in annotate mode) */}
+          {mode === 'annotate' && (
+            <div className="sticky top-0 z-40 flex items-center gap-1.5 p-1.5 rounded-2xl bg-[#0c1024]/90 backdrop-blur-md border border-violet-500/25 shadow-2xl text-xs text-white animate-in slide-in-from-top-2">
+              {[
+                { id: 'text', label: 'Text Box', icon: Type },
+                { id: 'highlight', label: 'Highlight', icon: Highlighter },
+                { id: 'shape-rect', label: 'Rectangle', icon: Square },
+                { id: 'whiteout', label: 'Whiteout', icon: Eraser },
+                { id: 'redaction', label: 'Permanent Blackout', icon: ShieldAlert },
+              ].map((tool) => {
+                const Icon = tool.icon;
+                const isActive = annTool === tool.id;
+                return (
+                  <button
+                    key={tool.id}
+                    onClick={() => setAnnTool(tool.id as any)}
+                    className={cn(
+                      'flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-semibold text-xs transition-all',
+                      isActive
+                        ? 'bg-violet-600 text-white shadow-xs'
+                        : 'text-slate-400 hover:text-white hover:bg-white/5'
+                    )}
+                  >
+                    <Icon className="w-3.5 h-3.5" />
+                    <span>{tool.label}</span>
+                  </button>
+                );
+              })}
+              <div className="h-4 w-px bg-violet-500/20 mx-1" />
+              <div className="flex items-center gap-1.5 px-1">
+                <input
+                  type="color"
+                  value={annColor}
+                  onChange={(e) => setAnnColor(e.target.value)}
+                  className="w-5 h-5 rounded cursor-pointer border-0 bg-transparent"
+                  title="Annotation Color"
+                />
+              </div>
+              {annotations.length > 0 && (
+                <>
+                  <div className="h-4 w-px bg-violet-500/20 mx-1" />
+                  <Button
+                    size="sm"
+                    onClick={handleBurnAnnotations}
+                    className="h-7 text-xs bg-emerald-600 hover:bg-emerald-700 text-white gap-1 px-2.5 font-bold shadow-xs"
+                  >
+                    <Check className="w-3 h-3" />
+                    <span>Save Markup ({annotations.length})</span>
+                  </Button>
+                </>
+              )}
+            </div>
+          )}
+
+          {/* Floating Fullscreen Navigation Dock */}
+          {isFullscreen && (
+            <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-4 py-2 rounded-2xl bg-[#0c1024]/90 backdrop-blur-md border border-violet-500/30 shadow-2xl text-white animate-in slide-in-from-bottom-3">
+              <button
+                onClick={() => setCurrentPageIndex((p) => Math.max(0, p - 1))}
+                disabled={currentPageIndex === 0}
+                className="p-1.5 rounded-lg hover:bg-white/10 disabled:opacity-30"
+                title="Previous Page"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              <span className="text-xs font-mono font-bold">
+                {currentPageIndex + 1} / {totalPages}
+              </span>
+              <button
+                onClick={() => setCurrentPageIndex((p) => Math.min(totalPages - 1, p + 1))}
+                disabled={currentPageIndex >= totalPages - 1}
+                className="p-1.5 rounded-lg hover:bg-white/10 disabled:opacity-30"
+                title="Next Page"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+              <div className="h-4 w-px bg-violet-500/20" />
+              <button
+                onClick={() => setScale((s) => Math.max(0.25, parseFloat((s - 0.15).toFixed(2))))}
+                className="p-1.5 rounded-lg hover:bg-white/10"
+                title="Zoom Out"
+              >
+                <ZoomOut className="w-4 h-4" />
+              </button>
+              <span className="text-xs font-mono">{Math.round(scale * 100)}%</span>
+              <button
+                onClick={() => setScale((s) => Math.min(4.0, parseFloat((s + 0.15).toFixed(2))))}
+                className="p-1.5 rounded-lg hover:bg-white/10"
+                title="Zoom In"
+              >
+                <ZoomIn className="w-4 h-4" />
+              </button>
+              <div className="h-4 w-px bg-violet-500/20" />
+              <button
+                onClick={() => setIsFullscreen(false)}
+                className="p-1.5 rounded-lg hover:bg-white/10 text-slate-300 hover:text-white"
+                title="Exit Fullscreen (Escape)"
+              >
+                <Minimize2 className="w-4 h-4" />
+              </button>
+            </div>
+          )}
           {/* Classification & Engine Mode Indicator (Phase 11) */}
           {(() => {
             const cls = getPageClassification(currentPageIndex);
@@ -1445,10 +1889,147 @@ export const UnifiedDocumentWorkspace: React.FC<UnifiedDocumentWorkspaceProps> =
         </main>
 
         {/* RIGHT PANEL: CONTEXTUAL TOOL PROPERTIES */}
-        <aside className="w-80 bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 p-4 overflow-y-auto flex flex-col justify-between shrink-0 z-10 shadow-subtle">
-          <div className="space-y-5">
-            {/* CONTEXT 1: VECTOR TEXT EDIT */}
-            {mode === 'edit-text' && (
+        <aside className="w-80 bg-white dark:bg-[#0a0d1e] border-l border-slate-200 dark:border-violet-500/15 p-4 overflow-y-auto flex flex-col justify-between shrink-0 z-10 shadow-subtle">
+          <div className="space-y-4">
+            {/* Top Tab switcher */}
+            <div className="flex items-center gap-1 bg-slate-100 dark:bg-[#070915] p-1 rounded-xl mb-1 border border-slate-200 dark:border-violet-500/15">
+              <button
+                onClick={() => setRightPanelTab('tools')}
+                className={cn(
+                  'flex-1 py-1.5 text-xs font-semibold rounded-lg transition-all text-center flex items-center justify-center gap-1.5',
+                  rightPanelTab === 'tools'
+                    ? 'bg-white dark:bg-[#161a38] text-brand-600 dark:text-violet-300 shadow-2xs font-bold border border-violet-500/20'
+                    : 'text-slate-500 hover:text-slate-800 dark:text-slate-400'
+                )}
+              >
+                <SlidersHorizontal className="w-3.5 h-3.5" />
+                <span>Tool Settings</span>
+              </button>
+              <button
+                onClick={() => setRightPanelTab('properties')}
+                className={cn(
+                  'flex-1 py-1.5 text-xs font-semibold rounded-lg transition-all text-center flex items-center justify-center gap-1.5',
+                  rightPanelTab === 'properties'
+                    ? 'bg-white dark:bg-[#161a38] text-brand-600 dark:text-violet-300 shadow-2xs font-bold border border-violet-500/20'
+                    : 'text-slate-500 hover:text-slate-800 dark:text-slate-400'
+                )}
+              >
+                <Info className="w-3.5 h-3.5" />
+                <span>Properties</span>
+              </button>
+            </div>
+
+            {rightPanelTab === 'properties' ? (
+              <div className="space-y-4 animate-in fade-in duration-150">
+                <div className="border-b border-slate-100 dark:border-violet-500/15 pb-2">
+                  <h3 className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                    <FileText className="w-4 h-4 text-violet-400" />
+                    <span>Document Properties & Metadata</span>
+                  </h3>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+                    Acrobat-grade specification inspector and client-side metadata editor.
+                  </p>
+                </div>
+
+                {/* Metadata Fields */}
+                <div className="space-y-3">
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider block mb-1">
+                      Document Title
+                    </label>
+                    <input
+                      type="text"
+                      value={metaTitle}
+                      onChange={(e) => setMetaTitle(e.target.value)}
+                      placeholder="Untitled Document"
+                      className="w-full text-xs rounded-lg border border-slate-300 dark:border-violet-500/20 bg-white dark:bg-[#070915] p-2 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-violet-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider block mb-1">
+                      Author / Creator
+                    </label>
+                    <input
+                      type="text"
+                      value={metaAuthor}
+                      onChange={(e) => setMetaAuthor(e.target.value)}
+                      placeholder="Author name or organization"
+                      className="w-full text-xs rounded-lg border border-slate-300 dark:border-violet-500/20 bg-white dark:bg-[#070915] p-2 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-violet-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider block mb-1">
+                      Subject / Description
+                    </label>
+                    <textarea
+                      rows={2}
+                      value={metaSubject}
+                      onChange={(e) => setMetaSubject(e.target.value)}
+                      placeholder="Brief summary or classification"
+                      className="w-full text-xs rounded-lg border border-slate-300 dark:border-violet-500/20 bg-white dark:bg-[#070915] p-2 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-violet-500"
+                    />
+                  </div>
+
+                  <Button
+                    size="sm"
+                    onClick={handleSaveMetadata}
+                    disabled={isSavingMeta}
+                    className="w-full text-xs bg-violet-600 hover:bg-violet-700 text-white font-semibold gap-1.5 shadow-xs"
+                  >
+                    <Save className="w-3.5 h-3.5" />
+                    <span>{isSavingMeta ? 'Saving Metadata...' : 'Save Properties into PDF'}</span>
+                  </Button>
+                </div>
+
+                {/* Technical Specifications Table */}
+                <div className="pt-3 border-t border-slate-100 dark:border-violet-500/15 space-y-2 text-xs">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                    Technical Specifications
+                  </span>
+                  <div className="p-3 rounded-xl bg-slate-50 dark:bg-[#070915] border border-slate-200 dark:border-violet-500/15 space-y-2">
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">File Name:</span>
+                      <span className="font-mono text-slate-700 dark:text-slate-300 truncate max-w-[140px]" title={currentFile.name}>
+                        {currentFile.name}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">File Size:</span>
+                      <span className="font-mono text-slate-700 dark:text-slate-300">{formatBytes(currentFile.size)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">Page Count:</span>
+                      <span className="font-mono text-slate-700 dark:text-slate-300">{totalPages} pages</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">PDF Standard:</span>
+                      <span className="font-mono font-semibold text-violet-400">PDF 1.7 (ISO 32000)</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">Fast Web View:</span>
+                      <span className="font-medium text-slate-700 dark:text-slate-300">
+                        Client-Side Ready (Fast Byte Range)
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">Security:</span>
+                      <span className="font-medium text-emerald-400">
+                        {healthReport?.isEncrypted ? 'Password Protected' : 'No Restrictions'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">Producer:</span>
+                      <span className="font-mono text-[10px] text-slate-400">OmniPDF Engine</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <>
+                {/* CONTEXT 1: VECTOR TEXT EDIT */}
+                {mode === 'edit-text' && (
               <div className="space-y-4">
                 <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2">
                   <h3 className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
@@ -1955,6 +2536,8 @@ export const UnifiedDocumentWorkspace: React.FC<UnifiedDocumentWorkspaceProps> =
                   <Minimize2 className="w-3.5 h-3.5" /> Compress Document Now
                 </Button>
               </div>
+            )}
+              </>
             )}
           </div>
 
