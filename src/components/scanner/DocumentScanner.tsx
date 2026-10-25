@@ -13,6 +13,9 @@ import {
   Layers,
   ChevronLeft,
   ChevronRight,
+  ScanLine,
+  ShieldCheck,
+  ImagePlus,
 } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { usePdf } from '../../context/PdfContext';
@@ -251,7 +254,7 @@ export const DocumentScanner: React.FC = () => {
   const activePage = pages[activePageIndex];
 
   return (
-    <div className="max-w-5xl mx-auto flex flex-col gap-6">
+    <div className="cm-scanner-studio w-full max-w-7xl mx-auto flex flex-col gap-6">
       <input
         ref={fileInputRef}
         type="file"
@@ -271,15 +274,15 @@ export const DocumentScanner: React.FC = () => {
 
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-slate-900 dark:text-white">
-            Document Scanner & Enhancer
+          <h2 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-white flex items-center gap-3"><span className="cm-scanner-icon"><Camera className="h-6 w-6" /></span>
+            CM <span className="text-brand-400">Scanner</span>
           </h2>
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-            Capture photos with your camera or upload scans, enhance text, remove shadows, and convert to clean PDF.
+            Capture and refine documents in your private scanning studio. Adjust contrast, apply filters and export a PDF.
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           {!cameraActive ? (
             <Button variant="outline" size="sm" onClick={startCamera}>
               <Camera className="w-4 h-4 mr-1.5 text-brand-600" />
@@ -305,6 +308,8 @@ export const DocumentScanner: React.FC = () => {
         </div>
       </div>
 
+      <div className="cm-studio-meta flex flex-wrap items-center justify-between gap-3 rounded-xl border border-violet-400/15 bg-violet-500/[.055] px-4 py-3 text-xs text-slate-500 dark:text-slate-300"><span className="inline-flex items-center gap-2"><ShieldCheck className="h-4 w-4 text-emerald-400" /> Your scans are processed on this device</span><span className="inline-flex items-center gap-2"><ImagePlus className="h-4 w-4 text-violet-400" /> {pages.length} scanned {pages.length === 1 ? 'page' : 'pages'}</span></div>
+
       {/* Live Camera Viewfinder Modal/Section */}
       {cameraActive && (
         <div className="rounded-2xl border border-slate-200/80 bg-slate-900 p-4 flex flex-col items-center justify-center relative overflow-hidden">
@@ -317,7 +322,7 @@ export const DocumentScanner: React.FC = () => {
           />
 
           {/* Scanner Overlay Guide */}
-          <div className="absolute inset-8 border-2 border-brand-400/60 rounded-xl pointer-events-none flex flex-col justify-between p-4">
+          <div className="absolute inset-8 border-2 border-violet-400/70 rounded-xl pointer-events-none flex flex-col justify-between p-4">
             <span className="text-[11px] font-semibold text-white/80 bg-black/50 px-2 py-0.5 rounded self-start">
               Align document inside border
             </span>
@@ -334,12 +339,12 @@ export const DocumentScanner: React.FC = () => {
 
       {/* Main Workspace */}
       {pages.length === 0 && !cameraActive ? (
-        <div className="rounded-2xl border-2 border-dashed border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-12 text-center flex flex-col items-center justify-center">
+        <div className="cm-empty-stage rounded-3xl border-2 border-dashed border-slate-200 dark:border-violet-400/25 bg-white dark:bg-[#101327] p-12 text-center flex flex-col items-center justify-center">
           <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-brand-50 text-brand-600 dark:bg-brand-950/70 dark:text-brand-400 mb-4">
-            <Camera className="h-8 w-8" />
+            <ScanLine className="h-8 w-8" />
           </div>
           <h3 className="text-lg font-semibold text-slate-900 dark:text-white">
-            No scanned documents yet
+            Your next scan starts here
           </h3>
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400 max-w-sm">
             Use your phone or webcam to scan physical documents, or upload photos of invoices, receipts, and forms.
@@ -367,9 +372,9 @@ export const DocumentScanner: React.FC = () => {
         </div>
       ) : (
         pages.length > 0 && (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="cm-scanner-layout grid grid-cols-1 lg:grid-cols-[minmax(0,1.8fr)_minmax(300px,1fr)] gap-6">
             {/* Center / Left: Active Page Preview */}
-            <div className="lg:col-span-2 rounded-2xl border border-slate-200/80 bg-white p-5 shadow-subtle dark:border-slate-800 dark:bg-slate-900 flex flex-col justify-between">
+            <div className="cm-preview-panel rounded-2xl border border-slate-200/80 bg-white p-5 shadow-subtle dark:border-violet-400/15 dark:bg-[#111427] flex flex-col justify-between">
               <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800 text-xs">
                 <span className="font-semibold text-slate-700 dark:text-slate-300">
                   Page {activePageIndex + 1} of {pages.length}
@@ -386,7 +391,7 @@ export const DocumentScanner: React.FC = () => {
               </div>
 
               {/* Preview canvas container */}
-              <div className="my-4 flex-1 flex items-center justify-center bg-slate-100 dark:bg-slate-950 rounded-xl p-4 min-h-[380px]">
+              <div className="cm-preview-stage my-4 flex-1 flex items-center justify-center bg-slate-100 dark:bg-[#090b19] rounded-xl p-4 min-h-[380px]">
                 {activePage && (
                   <img
                     src={activePage.enhancedDataUrl}
@@ -415,10 +420,10 @@ export const DocumentScanner: React.FC = () => {
             </div>
 
             {/* Right: Enhancement Filters & Controls */}
-            <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-subtle dark:border-slate-800 dark:bg-slate-900 space-y-5">
+            <div className="cm-controls-panel rounded-2xl border border-slate-200/80 bg-white p-5 shadow-subtle dark:border-violet-400/15 dark:bg-[#111427] space-y-5">
               <div>
                 <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                  Scan Presets
+                  <span className="inline-flex items-center gap-2"><Sparkles className="h-4 w-4 text-violet-400" /> Scan Presets</span>
                 </span>
                 <div className="grid grid-cols-2 gap-2 mt-2">
                   <button
@@ -537,7 +542,7 @@ export const DocumentScanner: React.FC = () => {
                 </div>
               </div>
 
-              <Button variant="primary" size="lg" onClick={handleCompileToPdf} className="w-full">
+              <Button variant="primary" size="lg" onClick={handleCompileToPdf} className="cm-export-button w-full">
                 <FileCheck className="w-4 h-4 mr-2" />
                 Compile to PDF
               </Button>
