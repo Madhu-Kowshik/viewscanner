@@ -85,7 +85,7 @@ export const WorkspaceSidebar: React.FC = () => {
   ];
 
   return (
-    <aside className="w-64 shrink-0 border-r border-slate-200/80 bg-white dark:border-slate-800/80 dark:bg-slate-950 p-3 hidden md:flex flex-col justify-between overflow-y-auto">
+    <aside className="cm-workspace-sidebar w-64 shrink-0 border-r border-slate-200/80 bg-white dark:border-violet-400/10 dark:bg-[#0c0e1e] p-3 hidden md:flex flex-col justify-between overflow-y-auto">
       <div className="space-y-4">
         {/* Document Status Pill if active */}
         {currentFile && (
@@ -123,8 +123,8 @@ export const WorkspaceSidebar: React.FC = () => {
                       className={({ isActive }) =>
                         `flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors ${
                           isActive
-                            ? 'bg-brand-50 text-brand-700 dark:bg-brand-950/70 dark:text-brand-300 font-semibold shadow-2xs'
-                            : 'text-slate-600 hover:bg-slate-100/70 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800/60 dark:hover:text-slate-200'
+                            ? 'bg-brand-50 text-brand-700 dark:bg-gradient-to-r dark:from-violet-600 dark:to-indigo-600 dark:text-white font-semibold shadow-2xs'
+                            : 'text-slate-600 hover:bg-slate-100/70 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-violet-400/10 dark:hover:text-violet-100'
                         }`
                       }
                     >
