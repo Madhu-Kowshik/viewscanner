@@ -62,3 +62,15 @@
 @keyframes premium-rise { from {opacity:0;transform:translateY(20px)} to {opacity:1;transform:translateY(0)} }
 .premium-rise {animation:premium-rise .65s cubic-bezier(.2,.7,.2,1) both;}
 @media (prefers-reduced-motion:reduce) { .premium-rise {animation:none} .premium-primary:hover,.premium-tool-card:hover {transform:none} }
+
+/* Premium Dark: consistent visual language across tools, settings and workspace. */
+.dark body { background:#080a17; }
+.dark .premium-inner { background-image:radial-gradient(ellipse 65% 30% at 50% -10%,rgba(109,40,217,.13),transparent); }
+.dark .premium-inner h1 { letter-spacing:-.045em; }
+.dark .premium-inner :is(.bg-white,.dark\\:bg-slate-900) { box-shadow:0 12px 36px rgba(0,0,0,.12); }
+.dark .premium-tools :is(.rounded-2xl,.rounded-xl) { transition:border-color .2s,box-shadow .2s,transform .2s; }
+.dark .premium-tools .group:hover { box-shadow:0 18px 50px rgba(76,29,149,.17); }
+.dark .premium-tools .group:focus-within { outline:2px solid #a78bfa;outline-offset:3px; }
+.dark .premium-inner input:focus-visible { outline-color:#a78bfa; }
+.dark .premium-workspace { background-color:#080a17; }
+.dark .premium-inner :is(.shadow-subtle,.shadow-card) { box-shadow:0 12px 35px rgba(0,0,0,.15); }
