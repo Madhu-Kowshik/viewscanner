@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Camera, ChevronDown, ChevronRight, Command, FilePlus2, FileText, LayoutGrid, Menu, Minimize2, PanelLeftClose, PanelLeftOpen, PenTool, ScanText, Search, ShieldCheck, Sparkles, WandSparkles, X } from 'lucide-react';
+import { Camera, ChevronDown, ChevronRight, FilePlus2, FileText, LayoutGrid, Minimize2, PanelLeftClose, PanelLeftOpen, PenTool, ScanText, Search, ShieldCheck, Sparkles, WandSparkles, X } from 'lucide-react';
 import { usePdf } from '../../context/PdfContext';
 import { formatBytes } from '../../lib/utils';
 
