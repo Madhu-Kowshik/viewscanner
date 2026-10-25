@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { WorkspaceSidebar } from '../components/layout/WorkspaceSidebar';
+import { WorkspaceCommandBar } from '../components/layout/WorkspaceCommandBar';
 import { MobileTabBar } from '../components/layout/MobileTabBar';
 import { PageOrganizer } from '../components/organizer/PageOrganizer';
 import { PdfViewer } from '../components/viewer/PdfViewer';
@@ -40,6 +41,7 @@ export const WorkspacePage: React.FC<WorkspacePageProps> = ({ initialTool = 'org
   const navigate = useNavigate();
   const { currentFile, healthReport, savedSession, resumeSavedSession, dismissSavedSession, documentType } = usePdf();
   const [dismissedTipFileId, setDismissedTipFileId] = useState<string | null>(null);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   // Determine active tool from current path
   const path = location.pathname;
@@ -109,9 +111,11 @@ export const WorkspacePage: React.FC<WorkspacePageProps> = ({ initialTool = 'org
   }
 
   return (
-    <div className="premium-inner premium-workspace flex h-[calc(100vh-4rem)] overflow-hidden bg-slate-50 dark:bg-[#080a17]">
+    <div className="premium-inner premium-workspace hybrid-studio-shell flex h-[calc(100vh-4rem)] flex-col overflow-hidden bg-slate-50 dark:bg-[#080a17]">
+      <WorkspaceCommandBar collapsed={sidebarCollapsed} onToggle={() => setSidebarCollapsed(v => !v)} />
+      <div className="flex min-h-0 flex-1 overflow-hidden">
       {/* Desktop Sidebar */}
-      <WorkspaceSidebar />
+      {!sidebarCollapsed && <WorkspaceSidebar />}
 
       {/* Main Content Workspace */}
       <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 pb-20 md:pb-8">
@@ -243,6 +247,7 @@ export const WorkspacePage: React.FC<WorkspacePageProps> = ({ initialTool = 'org
         </div>
       </main>
 
+      </div>
       {/* Mobile Bottom Tab Bar */}
       <MobileTabBar />
 
