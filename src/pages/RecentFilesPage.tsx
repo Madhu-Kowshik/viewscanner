@@ -40,7 +40,7 @@ export const RecentFilesPage: React.FC = () => {
   };
 
   return (
-    <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+    <div className="premium-inner max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-6 border-b border-slate-200/80 dark:border-slate-800/80">
         <div>
           <h1 className="text-3xl font-bold text-slate-900 dark:text-white">
