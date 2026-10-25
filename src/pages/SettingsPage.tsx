@@ -18,7 +18,7 @@ export const SettingsPage: React.FC = () => {
   ] as const;
 
   return (
-    <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-10">
+    <div className="premium-inner max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-10">
       <div>
         <h1 className="text-3xl font-bold text-slate-900 dark:text-white">
           Settings
