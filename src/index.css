@@ -74,3 +74,20 @@
 .dark .premium-inner input:focus-visible { outline-color:#a78bfa; }
 .dark .premium-workspace { background-color:#080a17; }
 .dark .premium-inner :is(.shadow-subtle,.shadow-card) { box-shadow:0 12px 35px rgba(0,0,0,.15); }
+
+/* CM Scanner-inspired studio: a real, responsive interface over existing scanner logic. */
+.dark .cm-scanner-studio { color:#e9e9fa; }
+.dark .cm-scanner-studio h2 { letter-spacing:-.045em; }
+.cm-scanner-icon { display:inline-flex;align-items:center;justify-content:center;width:52px;height:52px;border-radius:16px;color:#42e8c5;background:linear-gradient(135deg,#102b36,#0b1925);border:1px solid rgba(45,212,191,.3);box-shadow:0 10px 30px rgba(20,184,166,.12); }
+.dark .cm-empty-stage { background-image:radial-gradient(circle at 50% 20%,rgba(124,58,237,.16),transparent 65%); }
+.dark .cm-preview-panel,.dark .cm-controls-panel { box-shadow:0 20px 55px rgba(0,0,0,.23),inset 0 1px rgba(255,255,255,.035); }
+.dark .cm-preview-stage { background-image:radial-gradient(circle at 50% 35%,rgba(103,80,194,.19),transparent 75%);border:1px solid rgba(167,139,250,.1); }
+.dark .cm-preview-stage img { box-shadow:0 25px 55px rgba(0,0,0,.45); }
+.dark .cm-scanner-studio input[type=range] { accent-color:#8b5cf6; }
+.dark .cm-scanner-studio button:focus-visible { outline-color:#a78bfa; }
+.dark .cm-scanner-studio button:not(:disabled) { transition:filter .2s,transform .2s,border-color .2s; }
+.dark .cm-scanner-studio button:not(:disabled):hover { filter:brightness(1.12); }
+.dark .cm-export-button { background:linear-gradient(115deg,#a855f7,#5b21ff);box-shadow:0 12px 35px rgba(124,58,237,.3); }
+.dark .cm-workspace-sidebar a[aria-current=page] { box-shadow:0 8px 25px rgba(109,40,217,.24); }
+@media (max-width:1023px) { .cm-scanner-layout { grid-template-columns:minmax(0,1fr); } }
+@media (prefers-reduced-motion:reduce) { .cm-scanner-studio button { transition:none!important; } }
