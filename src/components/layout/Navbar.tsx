@@ -16,6 +16,7 @@ import {
   Redo2,
   Search,
   Download,
+  Keyboard,
 } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import { usePdf } from '../../context/PdfContext';
@@ -39,11 +40,13 @@ export const Navbar: React.FC = () => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         setCommandPaletteOpen((prev) => !prev);
+      } else if (e.key === '?' && !(e.target instanceof HTMLInputElement) && !(e.target instanceof HTMLTextAreaElement) && !(e.target instanceof HTMLSelectElement) && !(e.target instanceof HTMLElement && e.target.isContentEditable) && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        navigate('/shortcuts');
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
+  }, [navigate]);
 
   const toggleTheme = () => {
     setTheme(actualTheme === 'dark' ? 'light' : 'dark');
@@ -54,6 +57,7 @@ export const Navbar: React.FC = () => {
     { label: 'All Tools', path: '/tools', icon: LayoutGrid },
     { label: 'Recent', path: '/recent', icon: Clock },
     { label: 'Settings', path: '/settings', icon: SettingsIcon },
+    { label: 'Shortcuts', path: '/shortcuts', icon: Keyboard },
   ];
 
   return (
