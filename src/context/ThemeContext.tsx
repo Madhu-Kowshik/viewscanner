@@ -18,7 +18,7 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         return saved;
       }
     }
-    return 'system';
+    return 'dark';
   });
 
   const [actualTheme, setActualTheme] = useState<'light' | 'dark'>('light');
